@@ -16,3 +16,6 @@
 # data storage (keep directory structure, exclude generated runtime json files)
 /data/*.json
 !/data/.gitkeep
+
+# typescript build info
+*.tsbuildinfo

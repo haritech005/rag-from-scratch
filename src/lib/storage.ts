@@ -1,19 +1,42 @@
+import fs from "fs/promises";
+import path from "path";
+import { ExtractedDocument } from "@/types";
+
 /**
- * Local JSON Storage Utilities (Placeholder for Phase 2 implementation)
+ * Local JSON Storage Utilities for Phase 1
  * 
- * Future Responsibility:
- * Reads and writes chunked text and vector embeddings to disk as JSON files
- * inside the `data/` directory (e.g., data/vectors.json).
+ * Saves extracted document pages into `data/extracted_pages.json`
  */
 
-import { LocalVectorStore } from "@/types";
+const DATA_DIR = path.join(process.cwd(), "data");
+const EXTRACTED_PAGES_FILE = path.join(DATA_DIR, "extracted_pages.json");
 
-export async function saveVectorStore(store: LocalVectorStore): Promise<void> {
-  // Implementation will be added in Phase 2
-  throw new Error("JSON vector storage write not implemented yet. Scheduled for Phase 2.");
+/**
+ * Saves extracted PDF pages into data/extracted_pages.json
+ * 
+ * @param documentData - ExtractedDocument object containing pages array
+ */
+export async function saveExtractedPages(documentData: ExtractedDocument): Promise<string> {
+  // Ensure data directory exists
+  await fs.mkdir(DATA_DIR, { recursive: true });
+
+  // Write formatted JSON to file
+  const jsonContent = JSON.stringify(documentData, null, 2);
+  await fs.writeFile(EXTRACTED_PAGES_FILE, jsonContent, "utf-8");
+
+  return EXTRACTED_PAGES_FILE;
 }
 
-export async function loadVectorStore(): Promise<LocalVectorStore | null> {
-  // Implementation will be added in Phase 3
-  throw new Error("JSON vector storage read not implemented yet. Scheduled for Phase 3.");
+/**
+ * Loads extracted PDF pages from data/extracted_pages.json if available.
+ * 
+ * @returns ExtractedDocument or null if file does not exist
+ */
+export async function loadExtractedPages(): Promise<ExtractedDocument | null> {
+  try {
+    const fileData = await fs.readFile(EXTRACTED_PAGES_FILE, "utf-8");
+    return JSON.parse(fileData) as ExtractedDocument;
+  } catch (error) {
+    return null;
+  }
 }
