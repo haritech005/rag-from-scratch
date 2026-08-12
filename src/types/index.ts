@@ -8,6 +8,17 @@ export interface TextChunk {
   pageNumber: number;
   content: string;
   charCount: number;
+  tokenCount?: number;
+}
+
+// Data payload structure produced by Phase 2 Chunking saved in data/chunks.json
+export interface ChunkedDocument {
+  sourceFilename: string;
+  totalChunks: number;
+  chunkSizeTokens: number;
+  chunkOverlapTokens: number;
+  chunkedAt: string;
+  chunks: TextChunk[];
 }
 
 // Represents a single page extracted from a PDF document
