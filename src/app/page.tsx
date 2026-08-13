@@ -1,20 +1,24 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ExtractedDocument, ChunkedDocument, TextChunk } from "@/types";
+import { ExtractedDocument, ChunkedDocument, TextChunk, LocalVectorStore } from "@/types";
 
 export default function Home() {
   const [extractedData, setExtractedData] = useState<ExtractedDocument | null>(null);
   const [chunkData, setChunkData] = useState<ChunkedDocument | null>(null);
+  const [embedData, setEmbedData] = useState<LocalVectorStore | null>(null);
   
   const [loadingExtract, setLoadingExtract] = useState<boolean>(false);
   const [loadingChunk, setLoadingChunk] = useState<boolean>(false);
+  const [loadingEmbed, setLoadingEmbed] = useState<boolean>(false);
   
   const [extractStatus, setExtractStatus] = useState<string>("");
   const [chunkStatus, setChunkStatus] = useState<string>("");
+  const [embedStatus, setEmbedStatus] = useState<string>("");
 
   const [selectedPage, setSelectedPage] = useState<number>(1);
   const [selectedChunkId, setSelectedChunkId] = useState<string>("");
+  const [selectedVectorId, setSelectedVectorId] = useState<string>("");
 
   // Load existing data on mount
   useEffect(() => {
@@ -36,6 +40,19 @@ export default function Home() {
           setChunkData(resData.data);
           if (resData.data.chunks.length > 0) {
             setSelectedChunkId(resData.data.chunks[0].id);
+          }
+        }
+      })
+      .catch(() => {});
+
+    // Load Phase 3
+    fetch("/api/embed")
+      .then((res) => res.json())
+      .then((embedRes) => {
+        if (embedRes.success && embedRes.data) {
+          setEmbedData(embedRes.data);
+          if (embedRes.data.vectors.length > 0) {
+            setSelectedVectorId(embedRes.data.vectors[0].id);
           }
         }
       })
@@ -87,19 +104,50 @@ export default function Home() {
     }
   };
 
+  const handleGenerateEmbeddings = async () => {
+    setLoadingEmbed(true);
+    setEmbedStatus("Connecting to Ollama & generating vector embeddings with nomic-embed-text...");
+    try {
+      const res = await fetch("/api/embed", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        // Refresh embeddings data
+        const getRes = await fetch("/api/embed");
+        const getData = await getRes.json();
+        if (getData.success && getData.data) {
+          setEmbedData(getData.data);
+          if (getData.data.vectors.length > 0) {
+            setSelectedVectorId(getData.data.vectors[0].id);
+          }
+        }
+        setEmbedStatus(`Successfully generated ${data.totalEmbeddings} embeddings! Saved to data/vectors.json`);
+      } else {
+        setEmbedStatus(`Embedding Error: ${data.error}`);
+      }
+    } catch (err: any) {
+      setEmbedStatus(`Error: ${err.message}`);
+    } finally {
+      setLoadingEmbed(false);
+    }
+  };
+
   const currentSelectedChunk: TextChunk | undefined = chunkData?.chunks.find(
     (c) => c.id === selectedChunkId
   ) || chunkData?.chunks[0];
 
+  const currentSelectedVector = embedData?.vectors.find(
+    (v) => v.id === selectedVectorId
+  ) || embedData?.vectors[0];
+
   return (
     <div style={{ maxWidth: "1000px", margin: "0 auto", padding: "1rem" }}>
       <header style={{ marginBottom: "2rem" }}>
-        <span className="badge">Phase 1 & Phase 2: PDF Extraction & Text Chunking</span>
+        <span className="badge">Phase 1, 2 & 3: PDF Extraction, Chunking & Embeddings</span>
         <h1 style={{ fontSize: "2.2rem", marginTop: "0.5rem" }}>
           Local PDF RAG Application
         </h1>
         <p style={{ color: "var(--text-muted)" }}>
-          Extract PDF text page-by-page and split into ~600 token chunks with ~100 token overlap (No LangChain, No Vector DB yet).
+          Process PDFs with page preservation, chunking (~600 tokens), and local Ollama <code>nomic-embed-text</code> embeddings stored in JSON.
         </p>
       </header>
 
@@ -164,6 +212,101 @@ export default function Home() {
           </p>
         )}
       </section>
+
+      {/* PHASE 3 SECTION */}
+      <section className="card" style={{ marginTop: "1.5rem" }}>
+        <h2>Phase 3: Generate Vector Embeddings ⭐</h2>
+        <p>
+          Send each chunk to local Ollama API using <code>nomic-embed-text</code> model to generate 768-dimensional semantic embeddings. Stores vector output in <code>data/vectors.json</code>.
+        </p>
+        <button
+          onClick={handleGenerateEmbeddings}
+          disabled={loadingEmbed}
+          style={{
+            padding: "0.75rem 1.5rem",
+            backgroundColor: loadingEmbed ? "#30363d" : "#8957e5",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "6px",
+            fontSize: "1rem",
+            fontWeight: 600,
+            cursor: loadingEmbed ? "not-allowed" : "pointer",
+            transition: "background 0.2s ease",
+          }}
+        >
+          {loadingEmbed ? "Generating Vector Embeddings..." : "Generate Chunk Embeddings (Phase 3)"}
+        </button>
+
+        {embedStatus && (
+          <p style={{ marginTop: "1rem", color: "#a5d6ff", fontWeight: 500 }}>
+            {embedStatus}
+          </p>
+        )}
+      </section>
+
+      {/* PHASE 3 INSPECTOR */}
+      {embedData && (
+        <section className="card" style={{ marginTop: "1.5rem" }}>
+          <h2>Phase 3 Vector Embeddings Overview</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "1rem" }}>
+            <div>
+              <strong>Total Embedded Chunks:</strong> <br />
+              <code>{embedData.totalChunks} vectors</code>
+            </div>
+            <div>
+              <strong>Embedding Model:</strong> <br />
+              <code>nomic-embed-text (Ollama)</code>
+            </div>
+            <div>
+              <strong>Vector Dimensions:</strong> <br />
+              <code>{embedData.vectors[0]?.embedding.length || 768} dimensions</code>
+            </div>
+            <div>
+              <strong>Saved Path:</strong> <br />
+              <code>data/vectors.json</code>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: "1rem", display: "flex", gap: "0.8rem", alignItems: "center", flexWrap: "wrap" }}>
+            <label htmlFor="vector-select">Select Vector Chunk ID:</label>
+            <select
+              id="vector-select"
+              value={selectedVectorId}
+              onChange={(e) => setSelectedVectorId(e.target.value)}
+              style={{
+                padding: "0.5rem 0.8rem",
+                borderRadius: "4px",
+                backgroundColor: "var(--code-bg)",
+                color: "var(--text-main)",
+                border: "1px solid var(--border-color)",
+              }}
+            >
+              {embedData.vectors.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.id} (Page {v.pageNumber} - {v.embedding.length} dims)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {currentSelectedVector && (
+            <div style={{ backgroundColor: "var(--code-bg)", padding: "1rem", borderRadius: "6px", border: "1px solid var(--border-color)" }}>
+              <div style={{ marginBottom: "0.5rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
+                <strong>Vector ID:</strong> {currentSelectedVector.id} | <strong>Page:</strong> {currentSelectedVector.pageNumber} | <strong>Dimensions:</strong> {currentSelectedVector.embedding.length}
+              </div>
+              <div style={{ padding: "0.8rem", backgroundColor: "#0d1117", borderRadius: "4px", fontSize: "0.9rem", marginBottom: "0.8rem" }}>
+                <strong>Chunk Text:</strong> {currentSelectedVector.content.slice(0, 200)}...
+              </div>
+              <div style={{ padding: "0.8rem", backgroundColor: "#040d21", borderRadius: "4px", fontSize: "0.85rem", color: "#7ee787", overflowX: "auto" }}>
+                <strong>Embedding Vector (first 10 of 768 values):</strong>
+                <pre style={{ margin: "0.5rem 0 0 0" }}>
+                  {JSON.stringify(currentSelectedVector.embedding.slice(0, 10), null, 2)}
+                </pre>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* PHASE 2 INSPECTOR & DISPLAY */}
       {chunkData && (
@@ -277,3 +420,4 @@ export default function Home() {
     </div>
   );
 }
+
