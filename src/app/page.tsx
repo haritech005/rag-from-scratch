@@ -20,6 +20,14 @@ export default function Home() {
   const [selectedChunkId, setSelectedChunkId] = useState<string>("");
   const [selectedVectorId, setSelectedVectorId] = useState<string>("");
 
+  // Phase 5 Similarity Search state
+  const [searchQuery, setSearchQuery] = useState<string>("What are the main paradigms of RAG?");
+  const [loadingQuery, setLoadingQuery] = useState<boolean>(false);
+  const [queryStatus, setQueryStatus] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<
+    { chunkId: string; pageNumber: number; score: number; content: string }[] | null
+  >(null);
+
   // Load existing data on mount
   useEffect(() => {
     // Load Phase 1
@@ -131,6 +139,30 @@ export default function Home() {
     }
   };
 
+  const handleSearchQuery = async () => {
+    if (!searchQuery.trim()) return;
+    setLoadingQuery(true);
+    setQueryStatus("Embedding user question & calculating Cosine Similarity against all chunks...");
+    try {
+      const res = await fetch("/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: searchQuery, topK: 3 }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSearchResults(data.retrievedChunks);
+        setQueryStatus(`Successfully searched ${data.totalVectorsSearched} vectors! Retrieved Top ${data.topK} chunks.`);
+      } else {
+        setQueryStatus(`Search Error: ${data.error}`);
+      }
+    } catch (err: any) {
+      setQueryStatus(`Error: ${err.message}`);
+    } finally {
+      setLoadingQuery(false);
+    }
+  };
+
   const currentSelectedChunk: TextChunk | undefined = chunkData?.chunks.find(
     (c) => c.id === selectedChunkId
   ) || chunkData?.chunks[0];
@@ -142,12 +174,12 @@ export default function Home() {
   return (
     <div style={{ maxWidth: "1000px", margin: "0 auto", padding: "1rem" }}>
       <header style={{ marginBottom: "2rem" }}>
-        <span className="badge">Phase 1, 2 & 3: PDF Extraction, Chunking & Embeddings</span>
+        <span className="badge">Phase 1 to 5: RAG Pipeline & Similarity Search</span>
         <h1 style={{ fontSize: "2.2rem", marginTop: "0.5rem" }}>
           Local PDF RAG Application
         </h1>
         <p style={{ color: "var(--text-muted)" }}>
-          Process PDFs with page preservation, chunking (~600 tokens), and local Ollama <code>nomic-embed-text</code> embeddings stored in JSON.
+          Extract PDF text, split into overlapping chunks, embed with <code>nomic-embed-text</code>, and perform Cosine Similarity search over local JSON store.
         </p>
       </header>
 
@@ -215,7 +247,7 @@ export default function Home() {
 
       {/* PHASE 3 SECTION */}
       <section className="card" style={{ marginTop: "1.5rem" }}>
-        <h2>Phase 3: Generate Vector Embeddings ⭐</h2>
+        <h2>Phase 3: Generate Vector Embeddings</h2>
         <p>
           Send each chunk to local Ollama API using <code>nomic-embed-text</code> model to generate 768-dimensional semantic embeddings. Stores vector output in <code>data/vectors.json</code>.
         </p>
@@ -243,6 +275,90 @@ export default function Home() {
           </p>
         )}
       </section>
+
+      {/* PHASE 5 VECTOR SIMILARITY SEARCH SECTION */}
+      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#1f6feb" }}>
+        <h2>Phase 5: Vector Similarity Search ⭐</h2>
+        <p>
+          Enter a user question. Converts question to vector embedding using <code>nomic-embed-text</code>, calculates Cosine Similarity against all stored chunk vectors in <code>data/vectors.json</code>, and retrieves the Top 3 most relevant chunks.
+        </p>
+        <div style={{ display: "flex", gap: "0.8rem", marginTop: "1rem", flexWrap: "wrap" }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Ask a question about the document..."
+            style={{
+              flex: "1",
+              minWidth: "280px",
+              padding: "0.75rem 1rem",
+              borderRadius: "6px",
+              backgroundColor: "var(--code-bg)",
+              color: "var(--text-main)",
+              border: "1px solid var(--border-color)",
+              fontSize: "1rem",
+            }}
+          />
+          <button
+            onClick={handleSearchQuery}
+            disabled={loadingQuery}
+            style={{
+              padding: "0.75rem 1.5rem",
+              backgroundColor: loadingQuery ? "#30363d" : "#1f6feb",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "1rem",
+              fontWeight: 600,
+              cursor: loadingQuery ? "not-allowed" : "pointer",
+              transition: "background 0.2s ease",
+            }}
+          >
+            {loadingQuery ? "Searching Vectors..." : "Search Top 3 Chunks (Cosine Similarity)"}
+          </button>
+        </div>
+
+        {queryStatus && (
+          <p style={{ marginTop: "1rem", color: "#58a6ff", fontWeight: 500 }}>
+            {queryStatus}
+          </p>
+        )}
+
+        {searchResults && (
+          <div style={{ marginTop: "1.5rem" }}>
+            <h3>Top 3 Retrieved Chunks (Ranked by Cosine Similarity):</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "0.8rem" }}>
+              {searchResults.map((item, idx) => (
+                <div
+                  key={item.chunkId + idx}
+                  style={{
+                    backgroundColor: "#0d1117",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "6px",
+                    padding: "1rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 600, color: "#58a6ff" }}>
+                      Rank #{idx + 1} — Chunk ID: {item.chunkId}
+                    </span>
+                    <span style={{ color: "#7ee787", fontWeight: 600 }}>
+                      Similarity Score: {item.score}
+                    </span>
+                    <span style={{ color: "var(--text-muted)" }}>
+                      Source: Page {item.pageNumber}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "0.95rem", lineHeight: "1.5", color: "var(--text-main)" }}>
+                    {item.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
 
       {/* PHASE 3 INSPECTOR */}
       {embedData && (
