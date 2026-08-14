@@ -20,13 +20,16 @@ export default function Home() {
   const [selectedChunkId, setSelectedChunkId] = useState<string>("");
   const [selectedVectorId, setSelectedVectorId] = useState<string>("");
 
-  // Phase 5 Similarity Search state
+  // Phase 5 & 6 RAG Query state
   const [searchQuery, setSearchQuery] = useState<string>("What are the main paradigms of RAG?");
   const [loadingQuery, setLoadingQuery] = useState<boolean>(false);
   const [queryStatus, setQueryStatus] = useState<string>("");
   const [searchResults, setSearchResults] = useState<
     { chunkId: string; pageNumber: number; score: number; content: string }[] | null
   >(null);
+  const [ragAnswer, setRagAnswer] = useState<string>("");
+  const [constructedPrompt, setConstructedPrompt] = useState<string>("");
+  const [showPrompt, setShowPrompt] = useState<boolean>(false);
 
   // Load existing data on mount
   useEffect(() => {
@@ -142,7 +145,9 @@ export default function Home() {
   const handleSearchQuery = async () => {
     if (!searchQuery.trim()) return;
     setLoadingQuery(true);
-    setQueryStatus("Embedding user question & calculating Cosine Similarity against all chunks...");
+    setQueryStatus("Running RAG pipeline: Embedding query -> Vector search -> Gemma 3 4B generation...");
+    setRagAnswer("");
+    setConstructedPrompt("");
     try {
       const res = await fetch("/api/query", {
         method: "POST",
@@ -152,9 +157,11 @@ export default function Home() {
       const data = await res.json();
       if (data.success) {
         setSearchResults(data.retrievedChunks);
-        setQueryStatus(`Successfully searched ${data.totalVectorsSearched} vectors! Retrieved Top ${data.topK} chunks.`);
+        setRagAnswer(data.answer);
+        setConstructedPrompt(data.constructedPrompt);
+        setQueryStatus(`Successfully generated answer using Gemma 3 4B! Searched ${data.totalVectorsSearched} vectors.`);
       } else {
-        setQueryStatus(`Search Error: ${data.error}`);
+        setQueryStatus(`RAG Error: ${data.error}`);
       }
     } catch (err: any) {
       setQueryStatus(`Error: ${err.message}`);
@@ -162,6 +169,7 @@ export default function Home() {
       setLoadingQuery(false);
     }
   };
+
 
   const currentSelectedChunk: TextChunk | undefined = chunkData?.chunks.find(
     (c) => c.id === selectedChunkId
@@ -276,18 +284,18 @@ export default function Home() {
         )}
       </section>
 
-      {/* PHASE 5 VECTOR SIMILARITY SEARCH SECTION */}
-      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#1f6feb" }}>
-        <h2>Phase 5: Vector Similarity Search ⭐</h2>
+      {/* PHASE 5 & 6 SECTION: RAG RETRIEVAL & GEMMA GENERATION */}
+      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#238636" }}>
+        <h2>Phase 6: Full Grounded RAG Generation (Gemma 3 4B) ⭐</h2>
         <p>
-          Enter a user question. Converts question to vector embedding using <code>nomic-embed-text</code>, calculates Cosine Similarity against all stored chunk vectors in <code>data/vectors.json</code>, and retrieves the Top 3 most relevant chunks.
+          Converts question to vector using <code>nomic-embed-text</code>, retrieves Top 3 relevant chunks via Cosine Similarity, builds a grounded system prompt, and calls local <code>gemma3:4b</code> via Ollama.
         </p>
         <div style={{ display: "flex", gap: "0.8rem", marginTop: "1rem", flexWrap: "wrap" }}>
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Ask a question about the document..."
+            placeholder="Ask a question about the PDF document..."
             style={{
               flex: "1",
               minWidth: "280px",
@@ -304,7 +312,7 @@ export default function Home() {
             disabled={loadingQuery}
             style={{
               padding: "0.75rem 1.5rem",
-              backgroundColor: loadingQuery ? "#30363d" : "#1f6feb",
+              backgroundColor: loadingQuery ? "#30363d" : "#238636",
               color: "#ffffff",
               border: "none",
               borderRadius: "6px",
@@ -314,19 +322,92 @@ export default function Home() {
               transition: "background 0.2s ease",
             }}
           >
-            {loadingQuery ? "Searching Vectors..." : "Search Top 3 Chunks (Cosine Similarity)"}
+            {loadingQuery ? "Generating Answer..." : "Ask Gemma 3 4B (RAG)"}
           </button>
         </div>
 
         {queryStatus && (
-          <p style={{ marginTop: "1rem", color: "#58a6ff", fontWeight: 500 }}>
+          <p style={{ marginTop: "1rem", color: "#7ee787", fontWeight: 500 }}>
             {queryStatus}
           </p>
         )}
 
+        {/* GEMMA 3 4B GENERATED ANSWER DISPLAY */}
+        {ragAnswer && (
+          <div
+            style={{
+              marginTop: "1.5rem",
+              padding: "1.2rem",
+              backgroundColor: "#0d1117",
+              border: "1px solid #238636",
+              borderRadius: "8px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.8rem", flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 700, fontSize: "1.1rem", color: "#7ee787" }}>
+                🤖 Gemma 3 4B Grounded Response:
+              </span>
+              <span className="badge" style={{ backgroundColor: "#238636", color: "#fff" }}>
+                Grounded in PDF Context
+              </span>
+            </div>
+            <div
+              style={{
+                fontSize: "1rem",
+                lineHeight: "1.6",
+                color: "#e6edf3",
+                whiteSpace: "pre-wrap",
+                backgroundColor: "#161b22",
+                padding: "1rem",
+                borderRadius: "6px",
+              }}
+            >
+              {ragAnswer}
+            </div>
+
+            {/* CONSTRUCTED PROMPT TOGGLE */}
+            {constructedPrompt && (
+              <div style={{ marginTop: "1rem" }}>
+                <button
+                  onClick={() => setShowPrompt(!showPrompt)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#58a6ff",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    fontSize: "0.9rem",
+                    padding: 0,
+                  }}
+                >
+                  {showPrompt ? "▲ Hide Constructed LLM Prompt" : "▼ Show Constructed LLM Prompt (Where Chunks Are Inserted)"}
+                </button>
+                {showPrompt && (
+                  <pre
+                    style={{
+                      marginTop: "0.8rem",
+                      backgroundColor: "#040d21",
+                      padding: "1rem",
+                      borderRadius: "6px",
+                      fontSize: "0.85rem",
+                      color: "#a5d6ff",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      border: "1px solid #1f6feb",
+                    }}
+                  >
+                    {constructedPrompt}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TOP 3 RETRIEVED CHUNKS DISPLAY */}
         {searchResults && (
           <div style={{ marginTop: "1.5rem" }}>
-            <h3>Top 3 Retrieved Chunks (Ranked by Cosine Similarity):</h3>
+            <h3>Top 3 Retrieved Context Chunks (Ranked by Cosine Similarity):</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "0.8rem" }}>
               {searchResults.map((item, idx) => (
                 <div
@@ -358,6 +439,7 @@ export default function Home() {
           </div>
         )}
       </section>
+
 
 
       {/* PHASE 3 INSPECTOR */}

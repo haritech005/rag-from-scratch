@@ -51,8 +51,80 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   }
 }
 
-export async function generateLLMResponse(prompt: string, context: string): Promise<string> {
-  // Scheduled for Phase 5 / LLM Generation
-  throw new Error("LLM response generation scheduled for Phase 5.");
+/**
+ * Constructs a grounded RAG prompt by formatting system instructions, retrieved context chunks, and user question.
+ * 
+ * @param question - Original user question string
+ * @param chunks - Top-K retrieved chunks with page numbers and text content
+ * @returns Complete prompt string ready for LLM generation
+ */
+export function buildRAGPrompt(
+  question: string,
+  chunks: { chunkId: string; pageNumber: number; content: string; score: number }[]
+): string {
+  const contextText = chunks
+    .map(
+      (c, i) =>
+        `--- CONTEXT CHUNK ${i + 1} (Page ${c.pageNumber}, ID: ${c.chunkId}) ---\n${c.content}`
+    )
+    .join("\n\n");
+
+  return `You are a helpful and strict RAG AI Assistant.
+
+SYSTEM INSTRUCTIONS:
+1. Answer the USER QUESTION using ONLY the facts contained in the PROVIDED CONTEXT below.
+2. Do NOT use outside knowledge or assumptions not present in the CONTEXT.
+3. If the answer cannot be found in the PROVIDED CONTEXT, strictly reply with: "The requested information was not found in the document."
+4. Include page number citations (e.g. [Page X]) in your answer whenever referencing facts from the context.
+
+=== PROVIDED CONTEXT ===
+${contextText}
+========================
+
+USER QUESTION: ${question}
+
+ANSWER:`;
 }
+
+/**
+ * Sends a constructed prompt to local Ollama gemma3:4b model to generate a text answer.
+ * 
+ * @param fullPrompt - Grounded prompt containing system instructions, context chunks, and question
+ * @returns Promise resolving to the generated text response string
+ */
+export async function generateLLMResponse(fullPrompt: string): Promise<string> {
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        prompt: fullPrompt,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ollama LLM API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    if (typeof data.response !== "string") {
+      throw new Error("Invalid LLM response received from Ollama");
+    }
+
+    return data.response.trim();
+  } catch (error: any) {
+    if (error.cause?.code === "ECONNREFUSED" || error.message.includes("fetch failed")) {
+      throw new Error(
+        `Could not connect to Ollama at ${OLLAMA_BASE_URL}. Please ensure Ollama is running ('ollama serve') and model '${LLM_MODEL}' is pulled ('ollama pull ${LLM_MODEL}').`
+      );
+    }
+    throw error;
+  }
+}
+
 

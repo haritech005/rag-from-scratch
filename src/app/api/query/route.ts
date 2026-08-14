@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateEmbedding } from "@/lib/ollama";
+import { generateEmbedding, buildRAGPrompt, generateLLMResponse, LLM_MODEL } from "@/lib/ollama";
 import { loadEmbeddings } from "@/lib/storage";
 import { searchTopK } from "@/lib/vectorSearch";
 
 /**
- * Phase 5 API Endpoint: POST /api/query
+ * Phase 6 API Endpoint: POST /api/query
  * 
  * 1. Accepts a user's question.
- * 2. Generates an embedding vector for the question using local Ollama nomic-embed-text.
- * 3. Loads chunk vectors stored in data/vectors.json.
- * 4. Calculates Cosine Similarity between question vector and every stored chunk vector.
- * 5. Returns the Top 3 (or Top-K) most relevant chunks with similarity scores and page numbers.
- * 6. (Does NOT call Gemma or perform final LLM response generation yet).
+ * 2. Generates an embedding vector for the question using nomic-embed-text.
+ * 3. Retrieves Top-K (3) relevant chunks using Cosine Similarity against data/vectors.json.
+ * 4. Constructs a grounded prompt containing system instructions, context chunks with page numbers, and question.
+ * 5. Sends the prompt to local Ollama gemma3:4b model to generate the final grounded response.
+ * 6. Returns the generated answer, retrieved source chunks, and constructed prompt.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -39,44 +39,50 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Generate embedding vector for the user's question using nomic-embed-text
-    console.log(`Phase 5: Generating embedding for user question: "${question}"`);
+    console.log(`Phase 6: Generating embedding for user question: "${question}"`);
     const queryVector = await generateEmbedding(question);
 
     // Step 3: Compute Cosine Similarity against all stored chunks and rank Top-K
     const topChunks = searchTopK(queryVector, vectorStore.vectors, topK);
 
-    // Debugging print as required by prompt
-    console.log("\n=== Phase 5 Debugging output ===");
-    console.log(`Question: "${question}"`);
-    console.log(`Total Stored Chunks Searched: ${vectorStore.vectors.length}`);
-    console.log(`Top ${topK} Retrieved Chunks:`);
-    topChunks.forEach((item, index) => {
-      console.log(`  [${index + 1}] ID: ${item.chunkId} | Page: ${item.pageNumber} | Score: ${item.score.toFixed(4)}`);
-      console.log(`      Snippet: ${item.content.slice(0, 120)}...`);
-    });
+    const formattedChunks = topChunks.map((item) => ({
+      chunkId: item.chunkId,
+      pageNumber: item.pageNumber,
+      score: parseFloat(item.score.toFixed(4)),
+      content: item.content,
+    }));
+
+    // Step 4: Build grounded prompt inserting retrieved chunks and instructions
+    const fullPrompt = buildRAGPrompt(question, formattedChunks);
+
+    console.log("\n=== Phase 6 Constructed Prompt ===");
+    console.log(fullPrompt);
     console.log("=================================\n");
+
+    // Step 5: Send prompt to local Gemma 3 4B model via Ollama
+    console.log(`Phase 6: Sending prompt to local model '${LLM_MODEL}'...`);
+    const answer = await generateLLMResponse(fullPrompt);
 
     return NextResponse.json({
       success: true,
       question,
+      modelUsed: LLM_MODEL,
+      answer,
       totalVectorsSearched: vectorStore.vectors.length,
-      topK: topChunks.length,
-      retrievedChunks: topChunks.map((item) => ({
-        chunkId: item.chunkId,
-        pageNumber: item.pageNumber,
-        score: parseFloat(item.score.toFixed(4)),
-        content: item.content,
-      })),
+      topK: formattedChunks.length,
+      retrievedChunks: formattedChunks,
+      constructedPrompt: fullPrompt,
     });
   } catch (error: any) {
-    console.error("Vector Similarity Search Error:", error);
+    console.error("Phase 6 RAG Generation Error:", error);
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Failed to perform vector similarity search",
+        error: error.message || "Failed to generate grounded answer from Gemma 3 4B",
       },
       { status: 500 }
     );
   }
 }
+
 
