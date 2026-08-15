@@ -7,11 +7,11 @@ export default function Home() {
   const [extractedData, setExtractedData] = useState<ExtractedDocument | null>(null);
   const [chunkData, setChunkData] = useState<ChunkedDocument | null>(null);
   const [embedData, setEmbedData] = useState<LocalVectorStore | null>(null);
-  
+
   const [loadingExtract, setLoadingExtract] = useState<boolean>(false);
   const [loadingChunk, setLoadingChunk] = useState<boolean>(false);
   const [loadingEmbed, setLoadingEmbed] = useState<boolean>(false);
-  
+
   const [extractStatus, setExtractStatus] = useState<string>("");
   const [chunkStatus, setChunkStatus] = useState<string>("");
   const [embedStatus, setEmbedStatus] = useState<string>("");
@@ -42,7 +42,7 @@ export default function Home() {
           setExtractedData(data.document);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Load Phase 2
     fetch("/api/chunk")
@@ -55,7 +55,7 @@ export default function Home() {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Load Phase 3
     fetch("/api/embed")
@@ -68,7 +68,7 @@ export default function Home() {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const handleExtractPDF = async () => {
@@ -427,7 +427,6 @@ export default function Home() {
             )}
           </div>
         )}
-       )}
 
         {/* TOP 3 RETRIEVED CHUNKS DISPLAY */}
         {searchResults && (
