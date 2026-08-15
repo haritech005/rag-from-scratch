@@ -74,8 +74,10 @@ export function buildRAGPrompt(
 SYSTEM INSTRUCTIONS:
 1. Answer the USER QUESTION using ONLY the facts contained in the PROVIDED CONTEXT below.
 2. Do NOT use outside knowledge or assumptions not present in the CONTEXT.
-3. If the answer cannot be found in the PROVIDED CONTEXT, strictly reply with: "The requested information was not found in the document."
-4. Include page number citations (e.g. [Page X]) in your answer whenever referencing facts from the context.
+3. When calculating durations between month/year date ranges (e.g., Sept 2024 to Feb 2025), count the exact months step-by-step accurately (Sept, Oct, Nov, Dec, Jan, Feb = 6 months).
+4. If the answer cannot be found in the PROVIDED CONTEXT, strictly reply with: "The requested information was not found in the document."
+5. Include page number citations (e.g. [Page X]) in your answer whenever referencing facts from the context.
+
 
 === PROVIDED CONTEXT ===
 ${contextText}

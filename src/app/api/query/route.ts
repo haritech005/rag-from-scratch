@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateEmbedding, buildRAGPrompt, generateLLMResponse, LLM_MODEL } from "@/lib/ollama";
-import { loadEmbeddings } from "@/lib/storage";
+import { loadEmbeddings, loadExtractedPages } from "@/lib/storage";
 import { searchTopK } from "@/lib/vectorSearch";
+
 
 /**
  * Phase 6 API Endpoint: POST /api/query
@@ -64,13 +65,17 @@ export async function POST(request: NextRequest) {
     const answer = await generateLLMResponse(fullPrompt);
 
     // Phase 7: Extract unique source pages to build explicit citation metadata
+    const extractedDoc = await loadExtractedPages();
+    const activeFilename = extractedDoc?.filename || "RAG.pdf";
+
     const uniquePages = Array.from(new Set(formattedChunks.map((c) => c.pageNumber))).sort(
       (a, b) => a - b
     );
     const sources = uniquePages.map((page) => ({
-      file: "RAG.pdf",
+      file: activeFilename,
       page,
     }));
+
 
     return NextResponse.json({
       success: true,

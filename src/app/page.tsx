@@ -1,425 +1,332 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ExtractedDocument, ChunkedDocument, TextChunk, LocalVectorStore } from "@/types";
 
 export default function Home() {
+  // Application Data States
   const [extractedData, setExtractedData] = useState<ExtractedDocument | null>(null);
   const [chunkData, setChunkData] = useState<ChunkedDocument | null>(null);
   const [embedData, setEmbedData] = useState<LocalVectorStore | null>(null);
 
-  const [loadingExtract, setLoadingExtract] = useState<boolean>(false);
-  const [loadingChunk, setLoadingChunk] = useState<boolean>(false);
-  const [loadingEmbed, setLoadingEmbed] = useState<boolean>(false);
+  // File Upload State
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [extractStatus, setExtractStatus] = useState<string>("");
-  const [chunkStatus, setChunkStatus] = useState<string>("");
-  const [embedStatus, setEmbedStatus] = useState<string>("");
-
-  const [selectedPage, setSelectedPage] = useState<number>(1);
-  const [selectedChunkId, setSelectedChunkId] = useState<string>("");
-  const [selectedVectorId, setSelectedVectorId] = useState<string>("");
-
-  // Phase 5, 6 & 7 RAG Query state
-  const [searchQuery, setSearchQuery] = useState<string>("What are the main paradigms of RAG?");
-  const [loadingQuery, setLoadingQuery] = useState<boolean>(false);
-  const [queryStatus, setQueryStatus] = useState<string>("");
-  const [searchResults, setSearchResults] = useState<
+  // Pipeline Loading States
+  const [isProcessingPipeline, setIsProcessingPipeline] = useState<boolean>(false);
+  const [pipelineStep, setPipelineStep] = useState<string>("");
+  
+  // Q&A Query States
+  const [question, setQuestion] = useState<string>("What are the main paradigms of RAG?");
+  const [isGeneratingAnswer, setIsGeneratingAnswer] = useState<boolean>(false);
+  const [answer, setAnswer] = useState<string>("");
+  const [sources, setSources] = useState<{ file: string; page: number }[] | null>(null);
+  const [retrievedChunks, setRetrievedChunks] = useState<
     { chunkId: string; pageNumber: number; score: number; content: string }[] | null
   >(null);
-  const [ragAnswer, setRagAnswer] = useState<string>("");
   const [constructedPrompt, setConstructedPrompt] = useState<string>("");
   const [showPrompt, setShowPrompt] = useState<boolean>(false);
-  const [sourcesList, setSourcesList] = useState<{ file: string; page: number }[] | null>(null);
+  const [showDebugInspector, setShowDebugInspector] = useState<boolean>(false);
 
-  // Load existing data on mount
+  // Error States
+  const [errorMessage, setErrorMessage] = useState<string>("");
+
+  // Load existing RAG state on mount
   useEffect(() => {
-    // Load Phase 1
-    fetch("/api/ingest")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.document) {
-          setExtractedData(data.document);
-        }
-      })
-      .catch(() => { });
-
-    // Load Phase 2
-    fetch("/api/chunk")
-      .then((res) => res.json())
-      .then((resData) => {
-        if (resData.success && resData.data) {
-          setChunkData(resData.data);
-          if (resData.data.chunks.length > 0) {
-            setSelectedChunkId(resData.data.chunks[0].id);
-          }
-        }
-      })
-      .catch(() => { });
-
-    // Load Phase 3
-    fetch("/api/embed")
-      .then((res) => res.json())
-      .then((embedRes) => {
-        if (embedRes.success && embedRes.data) {
-          setEmbedData(embedRes.data);
-          if (embedRes.data.vectors.length > 0) {
-            setSelectedVectorId(embedRes.data.vectors[0].id);
-          }
-        }
-      })
-      .catch(() => { });
+    loadAppState();
   }, []);
 
-  const handleExtractPDF = async () => {
-    setLoadingExtract(true);
-    setExtractStatus("Extracting text page-by-page from RAG.pdf...");
+  const loadAppState = async () => {
     try {
-      const res = await fetch("/api/ingest", { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        setExtractedData(data.document);
-        setExtractStatus(`Successfully extracted ${data.document.totalPages} pages! Saved to data/extracted_pages.json`);
-      } else {
-        setExtractStatus(`Extraction Error: ${data.error}`);
+      // 1. Check extracted PDF pages
+      const resIngest = await fetch("/api/ingest");
+      const dataIngest = await resIngest.json();
+      if (dataIngest.success && dataIngest.document) {
+        setExtractedData(dataIngest.document);
+      }
+
+      // 2. Check text chunks
+      const resChunk = await fetch("/api/chunk");
+      const dataChunk = await resChunk.json();
+      if (dataChunk.success && dataChunk.data) {
+        setChunkData(dataChunk.data);
+      }
+
+      // 3. Check vector embeddings
+      const resEmbed = await fetch("/api/embed");
+      const dataEmbed = await resEmbed.json();
+      if (dataEmbed.success && dataEmbed.data) {
+        setEmbedData(dataEmbed.data);
       }
     } catch (err: any) {
-      setExtractStatus(`Error: ${err.message}`);
-    } finally {
-      setLoadingExtract(false);
+      console.error("Error loading app state:", err);
     }
   };
 
-  const handleGenerateChunks = async () => {
-    setLoadingChunk(true);
-    setChunkStatus("Splitting extracted pages into overlapping chunks (500-800 tokens)...");
+  /**
+   * Runs complete PDF Processing Pipeline:
+   * Upload PDF -> Parse Pages (Phase 1) -> Chunk Text (Phase 2) -> Generate Embeddings (Phase 3)
+   */
+  const handleProcessPdfPipeline = async (fileToUpload?: File | null) => {
+    setIsProcessingPipeline(true);
+    setErrorMessage("");
     try {
-      const res = await fetch("/api/chunk", {
+      // Step 1: PDF Extraction (Phase 1)
+      setPipelineStep("Step 1/3: Extracting PDF pages...");
+      let ingestRes;
+      if (fileToUpload) {
+        const formData = new FormData();
+        formData.append("file", fileToUpload);
+        ingestRes = await fetch("/api/ingest", {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        ingestRes = await fetch("/api/ingest", { method: "POST" });
+      }
+
+      const dataIngest = await ingestRes.json();
+      if (!dataIngest.success) {
+        throw new Error(dataIngest.error || "Failed to extract text from PDF");
+      }
+      setExtractedData(dataIngest.document);
+
+      // Step 2: Text Chunking (Phase 2)
+      setPipelineStep("Step 2/3: Chunking document text (~600 tokens)...");
+      const chunkRes = await fetch("/api/chunk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chunkSize: 600, overlap: 100 }),
       });
-      const resData = await res.json();
-      if (resData.success) {
-        setChunkData(resData.data);
-        if (resData.data.chunks.length > 0) {
-          setSelectedChunkId(resData.data.chunks[0].id);
-        }
-        setChunkStatus(`Successfully created ${resData.data.totalChunks} chunks! Saved to data/chunks.json`);
-      } else {
-        setChunkStatus(`Chunking Error: ${resData.error}`);
+      const dataChunk = await chunkRes.json();
+      if (!dataChunk.success) {
+        throw new Error(dataChunk.error || "Failed to generate text chunks");
       }
+      setChunkData(dataChunk.data);
+
+      // Step 3: Embeddings Generation (Phase 3)
+      setPipelineStep("Step 3/3: Generating 768-dim embeddings with Ollama (nomic-embed-text)...");
+      const embedRes = await fetch("/api/embed", { method: "POST" });
+      const dataEmbed = await embedRes.json();
+      if (!dataEmbed.success) {
+        throw new Error(dataEmbed.error || "Failed to generate vector embeddings");
+      }
+
+      // Reload updated embeddings
+      const getEmbed = await fetch("/api/embed");
+      const dataGetEmbed = await getEmbed.json();
+      if (dataGetEmbed.success) {
+        setEmbedData(dataGetEmbed.data);
+      }
+
+      setPipelineStep("✓ PDF Processed & Indexed Successfully!");
+      setSelectedFile(null);
     } catch (err: any) {
-      setChunkStatus(`Error: ${err.message}`);
+      setErrorMessage(err.message || "An unexpected error occurred during PDF processing");
+      setPipelineStep("");
     } finally {
-      setLoadingChunk(false);
+      setIsProcessingPipeline(false);
     }
   };
 
-  const handleGenerateEmbeddings = async () => {
-    setLoadingEmbed(true);
-    setEmbedStatus("Connecting to Ollama & generating vector embeddings with nomic-embed-text...");
-    try {
-      const res = await fetch("/api/embed", { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        // Refresh embeddings data
-        const getRes = await fetch("/api/embed");
-        const getData = await getRes.json();
-        if (getData.success && getData.data) {
-          setEmbedData(getData.data);
-          if (getData.data.vectors.length > 0) {
-            setSelectedVectorId(getData.data.vectors[0].id);
-          }
-        }
-        setEmbedStatus(`Successfully generated ${data.totalEmbeddings} embeddings! Saved to data/vectors.json`);
-      } else {
-        setEmbedStatus(`Embedding Error: ${data.error}`);
-      }
-    } catch (err: any) {
-      setEmbedStatus(`Error: ${err.message}`);
-    } finally {
-      setLoadingEmbed(false);
-    }
-  };
+  /**
+   * Submits Question to RAG Query Pipeline:
+   * Embed Question -> Vector Search -> Prompt Construction -> Gemma 3 4B Answer
+   */
+  const handleAskQuestion = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!question.trim()) return;
 
-  const handleSearchQuery = async () => {
-    if (!searchQuery.trim()) return;
-    setLoadingQuery(true);
-    setQueryStatus("Running RAG pipeline: Embedding query -> Vector search -> Gemma 3 4B generation...");
-    setRagAnswer("");
+    setIsGeneratingAnswer(true);
+    setErrorMessage("");
+    setAnswer("");
+    setSources(null);
+    setRetrievedChunks(null);
     setConstructedPrompt("");
-    setSourcesList(null);
+
     try {
       const res = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: searchQuery, topK: 3 }),
+        body: JSON.stringify({ question: question.trim(), topK: 3 }),
       });
+
       const data = await res.json();
-      if (data.success) {
-        setSearchResults(data.retrievedChunks);
-        setRagAnswer(data.answer);
-        setConstructedPrompt(data.constructedPrompt);
-        setSourcesList(data.sources || null);
-        setQueryStatus(`Successfully generated answer using Gemma 3 4B! Searched ${data.totalVectorsSearched} vectors.`);
-      } else {
-        setQueryStatus(`RAG Error: ${data.error}`);
+      if (!data.success) {
+        throw new Error(data.error || "Failed to generate response from RAG system");
       }
+
+      setAnswer(data.answer);
+      setSources(data.sources || null);
+      setRetrievedChunks(data.retrievedChunks || null);
+      setConstructedPrompt(data.constructedPrompt || "");
     } catch (err: any) {
-      setQueryStatus(`Error: ${err.message}`);
+      setErrorMessage(err.message || "Failed to retrieve answer from LLM");
     } finally {
-      setLoadingQuery(false);
+      setIsGeneratingAnswer(false);
     }
   };
 
-  const currentSelectedChunk: TextChunk | undefined = chunkData?.chunks.find(
-    (c) => c.id === selectedChunkId
-  ) || chunkData?.chunks[0];
-
-  const currentSelectedVector = embedData?.vectors.find(
-    (v) => v.id === selectedVectorId
-  ) || embedData?.vectors[0];
-
   return (
-    <div style={{ maxWidth: "1000px", margin: "0 auto", padding: "1rem" }}>
-      <header style={{ marginBottom: "2rem" }}>
-        <span className="badge">Phase 1 to 7: Complete Grounded RAG Application</span>
-        <h1 style={{ fontSize: "2.2rem", marginTop: "0.5rem" }}>
-          Local PDF RAG Application
-        </h1>
-        <p style={{ color: "var(--text-muted)" }}>
-          Extract PDF text, split into overlapping chunks, embed with <code>nomic-embed-text</code>, search via Cosine Similarity, and generate grounded answers with <code>gemma3:4b</code> & page citations.
-        </p>
+    <div className="container">
+      {/* HEADER SECTION */}
+      <header style={{ marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
+        <div>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+            <span className="badge">Phase 8 Frontend UI</span>
+            <span className="badge badge-success">Local Ollama Active</span>
+          </div>
+          <h1 style={{ fontSize: "2rem", color: "#0f172a" }}>Local PDF RAG Assistant</h1>
+          <p style={{ color: "#64748b", margin: 0 }}>
+            Grounded Q&A powered by <code>nomic-embed-text</code> & <code>gemma3:4b</code> without external vector databases.
+          </p>
+        </div>
+
+        {/* DOCUMENT METRICS CARD */}
+        <div style={{ background: "#ffffff", padding: "0.8rem 1.2rem", borderRadius: "10px", border: "1px solid #e2e8f0", boxShadow: "var(--shadow-sm)", fontSize: "0.85rem" }}>
+          <div style={{ color: "#64748b" }}>Active Document: <strong style={{ color: "#0f172a" }}>{extractedData?.filename || "RAG.pdf"}</strong></div>
+          <div style={{ display: "flex", gap: "1rem", marginTop: "0.3rem" }}>
+            <span>📄 Pages: <strong>{extractedData?.totalPages || 0}</strong></span>
+            <span>🧩 Chunks: <strong>{chunkData?.totalChunks || 0}</strong></span>
+            <span>⚡ Vectors: <strong>{embedData?.totalChunks || 0}</strong></span>
+          </div>
+        </div>
       </header>
 
-      {/* PHASE 1 SECTION */}
+      {/* ERROR ALERT BANNER */}
+      {errorMessage && (
+        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "1rem 1.25rem", borderRadius: "10px", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <strong>Error:</strong> {errorMessage}
+          </div>
+          <button onClick={() => setErrorMessage("")} style={{ background: "none", border: "none", color: "#991b1b", cursor: "pointer", fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {/* PDF UPLOAD & PROCESS CARD */}
       <section className="card">
-        <h2>Phase 1: Extract PDF Text</h2>
-        <p>
-          Process <code>RAG.pdf</code> on the backend and save raw page text into <code>data/extracted_pages.json</code>.
+        <h2 style={{ fontSize: "1.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          📁 1. Upload & Index PDF Document
+        </h2>
+        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
+          Upload a custom PDF or process the bundled <code>RAG.pdf</code> paper. The system extracts text page-by-page, chunks it into ~600 token blocks, and generates 768-dim embeddings.
         </p>
-        <button
-          onClick={handleExtractPDF}
-          disabled={loadingExtract}
-          style={{
-            padding: "0.75rem 1.5rem",
-            backgroundColor: loadingExtract ? "#30363d" : "var(--accent-color)",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "1rem",
-            fontWeight: 600,
-            cursor: loadingExtract ? "not-allowed" : "pointer",
-            transition: "background 0.2s ease",
-          }}
-        >
-          {loadingExtract ? "Extracting PDF Pages..." : "Extract PDF Text Page-by-Page"}
-        </button>
 
-        {extractStatus && (
-          <p style={{ marginTop: "1rem", color: "var(--accent-color)", fontWeight: 500 }}>
-            {extractStatus}
-          </p>
-        )}
-      </section>
-
-      {/* PHASE 2 SECTION */}
-      <section className="card" style={{ marginTop: "1.5rem" }}>
-        <h2>Phase 2: Generate Text Chunks</h2>
-        <p>
-          Split extracted text into overlapping chunks (~600 tokens target, ~100 tokens overlap) while keeping exact <code>pageNumber</code> citations.
-        </p>
-        <button
-          onClick={handleGenerateChunks}
-          disabled={loadingChunk}
-          style={{
-            padding: "0.75rem 1.5rem",
-            backgroundColor: loadingChunk ? "#30363d" : "#238636",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "1rem",
-            fontWeight: 600,
-            cursor: loadingChunk ? "not-allowed" : "pointer",
-            transition: "background 0.2s ease",
-          }}
-        >
-          {loadingChunk ? "Generating Text Chunks..." : "Generate Text Chunks (Phase 2)"}
-        </button>
-
-        {chunkStatus && (
-          <p style={{ marginTop: "1rem", color: "#2ea043", fontWeight: 500 }}>
-            {chunkStatus}
-          </p>
-        )}
-      </section>
-
-      {/* PHASE 3 SECTION */}
-      <section className="card" style={{ marginTop: "1.5rem" }}>
-        <h2>Phase 3: Generate Vector Embeddings</h2>
-        <p>
-          Send each chunk to local Ollama API using <code>nomic-embed-text</code> model to generate 768-dimensional semantic embeddings. Stores vector output in <code>data/vectors.json</code>.
-        </p>
-        <button
-          onClick={handleGenerateEmbeddings}
-          disabled={loadingEmbed}
-          style={{
-            padding: "0.75rem 1.5rem",
-            backgroundColor: loadingEmbed ? "#30363d" : "#8957e5",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "1rem",
-            fontWeight: 600,
-            cursor: loadingEmbed ? "not-allowed" : "pointer",
-            transition: "background 0.2s ease",
-          }}
-        >
-          {loadingEmbed ? "Generating Vector Embeddings..." : "Generate Chunk Embeddings (Phase 3)"}
-        </button>
-
-        {embedStatus && (
-          <p style={{ marginTop: "1rem", color: "#a5d6ff", fontWeight: 500 }}>
-            {embedStatus}
-          </p>
-        )}
-      </section>
-
-      {/* PHASE 5 & 6 & 7 SECTION: RAG RETRIEVAL, GEMMA GENERATION & SOURCE CITATIONS */}
-      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#238636" }}>
-        <h2>Phase 6 & 7: Grounded Answer Generation & Source Citations ⭐</h2>
-        <p>
-          Converts question to vector using <code>nomic-embed-text</code>, retrieves Top 3 relevant chunks via Cosine Similarity, builds a grounded system prompt, and calls local <code>gemma3:4b</code> via Ollama with explicit page citations.
-        </p>
-        <div style={{ display: "flex", gap: "0.8rem", marginTop: "1rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap", marginTop: "1rem" }}>
           <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Ask a question about the PDF document..."
-            style={{
-              flex: "1",
-              minWidth: "280px",
-              padding: "0.75rem 1rem",
-              borderRadius: "6px",
-              backgroundColor: "var(--code-bg)",
-              color: "var(--text-main)",
-              border: "1px solid var(--border-color)",
-              fontSize: "1rem",
-            }}
+            type="file"
+            accept=".pdf"
+            ref={fileInputRef}
+            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+            style={{ display: "none" }}
           />
+          
           <button
-            onClick={handleSearchQuery}
-            disabled={loadingQuery}
-            style={{
-              padding: "0.75rem 1.5rem",
-              backgroundColor: loadingQuery ? "#30363d" : "#238636",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "6px",
-              fontSize: "1rem",
-              fontWeight: 600,
-              cursor: loadingQuery ? "not-allowed" : "pointer",
-              transition: "background 0.2s ease",
-            }}
+            className="btn-secondary"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessingPipeline}
           >
-            {loadingQuery ? "Generating Answer..." : "Ask Gemma 3 4B (RAG)"}
+            {selectedFile ? `Selected: ${selectedFile.name}` : "Choose Custom PDF File..."}
+          </button>
+
+          <button
+            className="btn-primary"
+            onClick={() => handleProcessPdfPipeline(selectedFile)}
+            disabled={isProcessingPipeline}
+          >
+            {isProcessingPipeline ? "Processing PDF..." : selectedFile ? "Upload & Process Custom PDF" : "Index RAG.pdf Document"}
           </button>
         </div>
 
-        {queryStatus && (
-          <p style={{ marginTop: "1rem", color: "#7ee787", fontWeight: 500 }}>
-            {queryStatus}
-          </p>
+        {/* PIPELINE PROGRESS BAR */}
+        {pipelineStep && (
+          <div style={{ marginTop: "1.25rem", padding: "0.8rem 1rem", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", color: "#166534", fontSize: "0.9rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            {isProcessingPipeline && (
+              <span style={{ display: "inline-block", width: "14px", height: "14px", border: "2px solid #166534", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }}></span>
+            )}
+            {pipelineStep}
+          </div>
+        )}
+      </section>
+
+      {/* QUESTION INPUT & GROUNDED ANSWER CARD */}
+      <section className="card" style={{ borderColor: "#c7d2fe" }}>
+        <h2 style={{ fontSize: "1.25rem", color: "#4f46e5", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          💬 2. Ask Questions (Grounded Q&A)
+        </h2>
+        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
+          Ask any question about the PDF. The system computes Cosine Similarity against all chunk vectors, retrieves the Top 3 context chunks, and prompts Gemma 3 4B to answer using strictly provided facts.
+        </p>
+
+        <form onSubmit={handleAskQuestion} style={{ marginTop: "1rem" }}>
+          <div style={{ display: "flex", gap: "0.8rem", flexWrap: "wrap" }}>
+            <input
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Ask a question about the document..."
+              disabled={isGeneratingAnswer}
+              style={{ flex: 1, minWidth: "280px" }}
+            />
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={isGeneratingAnswer || !question.trim()}
+              style={{ padding: "0.75rem 1.75rem" }}
+            >
+              {isGeneratingAnswer ? "Thinking..." : "Ask Gemma 3 4B"}
+            </button>
+          </div>
+        </form>
+
+        {/* LOADING INDICATOR */}
+        {isGeneratingAnswer && (
+          <div style={{ marginTop: "1.5rem", padding: "1.25rem", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", textAlign: "center", color: "#64748b" }}>
+            <div style={{ display: "inline-block", width: "24px", height: "24px", border: "3px solid #4f46e5", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "0.5rem" }}></div>
+            <div>Embedding question $\rightarrow$ Searching 768-dim vectors $\rightarrow$ Generating answer with Gemma 3 4B...</div>
+          </div>
         )}
 
-        {/* GEMMA 3 4B GENERATED ANSWER DISPLAY */}
-        {ragAnswer && (
-          <div
-            style={{
-              marginTop: "1.5rem",
-              padding: "1.2rem",
-              backgroundColor: "#0d1117",
-              border: "1px solid #238636",
-              borderRadius: "8px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.8rem", flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 700, fontSize: "1.1rem", color: "#7ee787" }}>
-                🤖 Gemma 3 4B Grounded Response:
-              </span>
-              <span className="badge" style={{ backgroundColor: "#238636", color: "#fff" }}>
-                Grounded in PDF Context
-              </span>
-            </div>
-            <div
-              style={{
-                fontSize: "1rem",
-                lineHeight: "1.6",
-                color: "#e6edf3",
-                whiteSpace: "pre-wrap",
-                backgroundColor: "#161b22",
-                padding: "1rem",
-                borderRadius: "6px",
-              }}
-            >
-              {ragAnswer}
+        {/* GENERATED ANSWER & CITATIONS DISPLAY */}
+        {answer && !isGeneratingAnswer && (
+          <div style={{ marginTop: "1.5rem", padding: "1.5rem", backgroundColor: "#ffffff", border: "1px solid #a7f3d0", borderRadius: "10px", boxShadow: "0 4px 12px rgba(16, 185, 129, 0.08)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <h3 style={{ fontSize: "1.1rem", color: "#065f46", margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                🤖 Gemma 3 4B Answer
+              </h3>
+              <span className="badge badge-success">Strictly Grounded in PDF</span>
             </div>
 
-            {/* PHASE 7: EXPLICIT SOURCE CITATIONS BADGES */}
-            {sourcesList && sourcesList.length > 0 && (
-              <div style={{ marginTop: "1rem", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
-                <strong style={{ color: "#a5d6ff", fontSize: "0.9rem" }}>📄 Source Citations (Phase 7):</strong>
-                {sourcesList.map((s, idx) => (
-                  <span
-                    key={idx}
-                    style={{
-                      padding: "0.25rem 0.75rem",
-                      borderRadius: "12px",
-                      backgroundColor: "#1f6feb",
-                      color: "#ffffff",
-                      fontSize: "0.85rem",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {s.file} — Page {s.page}
+            {/* Answer Content */}
+            <div style={{ fontSize: "1rem", lineHeight: "1.7", color: "#1e293b", backgroundColor: "#f8fafc", padding: "1.2rem", borderRadius: "8px", border: "1px solid #e2e8f0", whiteSpace: "pre-wrap" }}>
+              {answer}
+            </div>
+
+            {/* SOURCE CITATIONS (Phase 7 Requirement) */}
+            {sources && sources.length > 0 && (
+              <div style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                <strong style={{ fontSize: "0.9rem", color: "#334155" }}>📄 Source Citations:</strong>
+                {sources.map((src, idx) => (
+                  <span key={idx} className="badge" style={{ backgroundColor: "#e0e7ff", color: "#4338ca", border: "1px solid #c7d2fe", fontSize: "0.85rem" }}>
+                    {src.file} — Page {src.page}
                   </span>
                 ))}
               </div>
             )}
 
-            {/* CONSTRUCTED PROMPT TOGGLE */}
+            {/* EXPANDABLE CONSTRUCTED PROMPT VIEWER */}
             {constructedPrompt && (
               <div style={{ marginTop: "1rem" }}>
                 <button
                   onClick={() => setShowPrompt(!showPrompt)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#58a6ff",
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                    fontSize: "0.9rem",
-                    padding: 0,
-                  }}
+                  style={{ background: "none", border: "none", color: "#4f46e5", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, padding: 0, textDecoration: "underline" }}
                 >
                   {showPrompt ? "▲ Hide Constructed LLM Prompt" : "▼ Show Constructed LLM Prompt (Where Chunks Are Inserted)"}
                 </button>
+
                 {showPrompt && (
-                  <pre
-                    style={{
-                      marginTop: "0.8rem",
-                      backgroundColor: "#040d21",
-                      padding: "1rem",
-                      borderRadius: "6px",
-                      fontSize: "0.85rem",
-                      color: "#a5d6ff",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      border: "1px solid #1f6feb",
-                    }}
-                  >
+                  <pre style={{ marginTop: "0.75rem", fontSize: "0.8rem", color: "#334155", backgroundColor: "#f1f5f9", borderColor: "#cbd5e1" }}>
                     {constructedPrompt}
                   </pre>
                 )}
@@ -427,219 +334,86 @@ export default function Home() {
             )}
           </div>
         )}
+      </section>
 
-        {/* TOP 3 RETRIEVED CHUNKS DISPLAY */}
-        {searchResults && (
-          <div style={{ marginTop: "1.5rem" }}>
-            <h3>Top 3 Retrieved Context Chunks (Ranked by Cosine Similarity):</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "0.8rem" }}>
-              {searchResults.map((item, idx) => (
-                <div
-                  key={item.chunkId + idx}
-                  style={{
-                    backgroundColor: "#0d1117",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "6px",
-                    padding: "1rem",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 600, color: "#58a6ff" }}>
-                      Rank #{idx + 1} — Chunk ID: {item.chunkId}
-                    </span>
-                    <span style={{ color: "#7ee787", fontWeight: 600 }}>
-                      Similarity Score: {item.score}
-                    </span>
-                    <span style={{ color: "var(--text-muted)" }}>
-                      Source: Page {item.pageNumber}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "0.95rem", lineHeight: "1.5", color: "var(--text-main)" }}>
-                    {item.content}
-                  </div>
+      {/* RETRIEVED CONTEXT CHUNKS DISPLAY */}
+      {retrievedChunks && retrievedChunks.length > 0 && (
+        <section className="card">
+          <h2 style={{ fontSize: "1.1rem", color: "#334155" }}>
+            🔍 Top 3 Retrieved Context Chunks (Cosine Similarity)
+          </h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
+            {retrievedChunks.map((chunk, idx) => (
+              <div key={chunk.chunkId + idx} style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.85rem", flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600, color: "#4f46e5" }}>Rank #{idx + 1} — ID: {chunk.chunkId}</span>
+                  <span style={{ color: "#059669", fontWeight: 600 }}>Similarity: {chunk.score}</span>
+                  <span style={{ color: "#64748b" }}>Page {chunk.pageNumber}</span>
                 </div>
-              ))}
+                <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: "1.5" }}>
+                  {chunk.content}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* DEBUG & DATA INSPECTOR TOGGLE */}
+      <section style={{ marginTop: "2rem", textAlign: "center" }}>
+        <button
+          className="btn-secondary"
+          onClick={() => setShowDebugInspector(!showDebugInspector)}
+          style={{ fontSize: "0.85rem" }}
+        >
+          {showDebugInspector ? "▲ Hide Raw Data Inspector" : "▼ Inspect Raw Data (Extracted Pages, Chunks & Vectors)"}
+        </button>
+
+        {showDebugInspector && (
+          <div style={{ marginTop: "1.5rem", textAlign: "left" }} className="card">
+            <h3>Raw Data Inspection</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1rem", fontSize: "0.9rem" }}>
+              <div>
+                <strong>Extracted Pages JSON:</strong>
+                <pre style={{ maxHeight: "200px" }}>
+                  {JSON.stringify(extractedData?.pages.slice(0, 2), null, 2)}
+                </pre>
+              </div>
+              <div>
+                <strong>Text Chunks JSON:</strong>
+                <pre style={{ maxHeight: "200px" }}>
+                  {JSON.stringify(chunkData?.chunks.slice(0, 2), null, 2)}
+                </pre>
+              </div>
+              <div>
+                <strong>Vectors JSON Sample:</strong>
+                <pre style={{ maxHeight: "200px" }}>
+                  {JSON.stringify(
+                    embedData?.vectors[0]
+                      ? {
+                          id: embedData.vectors[0].id,
+                          page: embedData.vectors[0].pageNumber,
+                          dimensions: embedData.vectors[0].embedding.length,
+                          sampleVector: embedData.vectors[0].embedding.slice(0, 5),
+                        }
+                      : null,
+                    null,
+                    2
+                  )}
+                </pre>
+              </div>
             </div>
           </div>
         )}
       </section>
 
-
-
-      {/* PHASE 3 INSPECTOR */}
-      {embedData && (
-        <section className="card" style={{ marginTop: "1.5rem" }}>
-          <h2>Phase 3 Vector Embeddings Overview</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "1rem" }}>
-            <div>
-              <strong>Total Embedded Chunks:</strong> <br />
-              <code>{embedData.totalChunks} vectors</code>
-            </div>
-            <div>
-              <strong>Embedding Model:</strong> <br />
-              <code>nomic-embed-text (Ollama)</code>
-            </div>
-            <div>
-              <strong>Vector Dimensions:</strong> <br />
-              <code>{embedData.vectors[0]?.embedding.length || 768} dimensions</code>
-            </div>
-            <div>
-              <strong>Saved Path:</strong> <br />
-              <code>data/vectors.json</code>
-            </div>
-          </div>
-
-          <div style={{ marginBottom: "1rem", display: "flex", gap: "0.8rem", alignItems: "center", flexWrap: "wrap" }}>
-            <label htmlFor="vector-select">Select Vector Chunk ID:</label>
-            <select
-              id="vector-select"
-              value={selectedVectorId}
-              onChange={(e) => setSelectedVectorId(e.target.value)}
-              style={{
-                padding: "0.5rem 0.8rem",
-                borderRadius: "4px",
-                backgroundColor: "var(--code-bg)",
-                color: "var(--text-main)",
-                border: "1px solid var(--border-color)",
-              }}
-            >
-              {embedData.vectors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.id} (Page {v.pageNumber} - {v.embedding.length} dims)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {currentSelectedVector && (
-            <div style={{ backgroundColor: "var(--code-bg)", padding: "1rem", borderRadius: "6px", border: "1px solid var(--border-color)" }}>
-              <div style={{ marginBottom: "0.5rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
-                <strong>Vector ID:</strong> {currentSelectedVector.id} | <strong>Page:</strong> {currentSelectedVector.pageNumber} | <strong>Dimensions:</strong> {currentSelectedVector.embedding.length}
-              </div>
-              <div style={{ padding: "0.8rem", backgroundColor: "#0d1117", borderRadius: "4px", fontSize: "0.9rem", marginBottom: "0.8rem" }}>
-                <strong>Chunk Text:</strong> {currentSelectedVector.content.slice(0, 200)}...
-              </div>
-              <div style={{ padding: "0.8rem", backgroundColor: "#040d21", borderRadius: "4px", fontSize: "0.85rem", color: "#7ee787", overflowX: "auto" }}>
-                <strong>Embedding Vector (first 10 of 768 values):</strong>
-                <pre style={{ margin: "0.5rem 0 0 0" }}>
-                  {JSON.stringify(currentSelectedVector.embedding.slice(0, 10), null, 2)}
-                </pre>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* PHASE 2 INSPECTOR & DISPLAY */}
-      {chunkData && (
-        <>
-          <section className="card" style={{ marginTop: "1.5rem" }}>
-            <h2>Phase 2 Overview: Chunks Dataset</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
-              <div>
-                <strong>Total Chunks Produced:</strong> <br />
-                <code>{chunkData.totalChunks} chunks</code>
-              </div>
-              <div>
-                <strong>Target Chunk Size:</strong> <br />
-                <code>~{chunkData.chunkSizeTokens} tokens (~2400 chars)</code>
-              </div>
-              <div>
-                <strong>Chunk Overlap:</strong> <br />
-                <code>~{chunkData.chunkOverlapTokens} tokens (~400 chars)</code>
-              </div>
-              <div>
-                <strong>Saved File:</strong> <br />
-                <code>data/chunks.json</code>
-              </div>
-            </div>
-          </section>
-
-          <section className="card" style={{ marginTop: "1.5rem" }}>
-            <h2>Inspect Chunks Line-by-Line</h2>
-            <div style={{ marginBottom: "1rem", display: "flex", gap: "0.8rem", alignItems: "center", flexWrap: "wrap" }}>
-              <label htmlFor="chunk-select">Select Chunk ID to View:</label>
-              <select
-                id="chunk-select"
-                value={selectedChunkId}
-                onChange={(e) => setSelectedChunkId(e.target.value)}
-                style={{
-                  padding: "0.5rem 0.8rem",
-                  borderRadius: "4px",
-                  backgroundColor: "var(--code-bg)",
-                  color: "var(--text-main)",
-                  border: "1px solid var(--border-color)",
-                }}
-              >
-                {chunkData.chunks.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.id} (Page {c.pageNumber} - {c.charCount} chars / ~{c.tokenCount} tokens)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {currentSelectedChunk && (
-              <div style={{ backgroundColor: "var(--code-bg)", padding: "1rem", borderRadius: "6px", border: "1px solid var(--border-color)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
-                  <span><strong>Chunk ID:</strong> {currentSelectedChunk.id}</span>
-                  <span><strong>Source Page:</strong> Page {currentSelectedChunk.pageNumber}</span>
-                  <span><strong>Length:</strong> {currentSelectedChunk.charCount} characters (~{currentSelectedChunk.tokenCount} tokens)</span>
-                </div>
-                <div style={{ padding: "0.8rem", backgroundColor: "#0d1117", borderRadius: "4px", fontSize: "0.95rem", lineHeight: "1.5" }}>
-                  {currentSelectedChunk.content}
-                </div>
-              </div>
-            )}
-          </section>
-        </>
-      )}
-
-      {/* PHASE 1 EXTRACTED PAGE PREVIEW */}
-      {extractedData && (
-        <section className="card" style={{ marginTop: "1.5rem" }}>
-          <h2>Phase 1 Source Page Preview</h2>
-          <div style={{ marginBottom: "1rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <label htmlFor="page-select">Select Source Page:</label>
-            <select
-              id="page-select"
-              value={selectedPage}
-              onChange={(e) => setSelectedPage(Number(e.target.value))}
-              style={{
-                padding: "0.4rem 0.8rem",
-                borderRadius: "4px",
-                backgroundColor: "var(--code-bg)",
-                color: "var(--text-main)",
-                border: "1px solid var(--border-color)",
-              }}
-            >
-              {extractedData.pages.map((p) => (
-                <option key={p.page} value={p.page}>
-                  Page {p.page}
-                </option>
-              ))}
-            </select>
-          </div>
-          <pre
-            style={{
-              backgroundColor: "var(--code-bg)",
-              padding: "1rem",
-              borderRadius: "6px",
-              overflowX: "auto",
-              maxHeight: "250px",
-              fontSize: "0.85rem",
-              border: "1px solid var(--border-color)",
-            }}
-          >
-            {JSON.stringify(
-              extractedData.pages.find((p) => p.page === selectedPage) || extractedData.pages[0],
-              null,
-              2
-            )}
-          </pre>
-        </section>
-      )}
+      {/* CSS ANIMATION FOR SPINNER */}
+      <style jsx global>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
-
