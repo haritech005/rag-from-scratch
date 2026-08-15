@@ -55,26 +55,36 @@ export async function POST(request: NextRequest) {
     // Step 4: Build grounded prompt inserting retrieved chunks and instructions
     const fullPrompt = buildRAGPrompt(question, formattedChunks);
 
-    console.log("\n=== Phase 6 Constructed Prompt ===");
+    console.log("\n=== Phase 6 & 7 Constructed Prompt ===");
     console.log(fullPrompt);
     console.log("=================================\n");
 
     // Step 5: Send prompt to local Gemma 3 4B model via Ollama
-    console.log(`Phase 6: Sending prompt to local model '${LLM_MODEL}'...`);
+    console.log(`Phase 6 & 7: Sending prompt to local model '${LLM_MODEL}'...`);
     const answer = await generateLLMResponse(fullPrompt);
+
+    // Phase 7: Extract unique source pages to build explicit citation metadata
+    const uniquePages = Array.from(new Set(formattedChunks.map((c) => c.pageNumber))).sort(
+      (a, b) => a - b
+    );
+    const sources = uniquePages.map((page) => ({
+      file: "RAG.pdf",
+      page,
+    }));
 
     return NextResponse.json({
       success: true,
       question,
       modelUsed: LLM_MODEL,
       answer,
+      sources, // Phase 7: Explicit source citations [{ file, page }]
       totalVectorsSearched: vectorStore.vectors.length,
       topK: formattedChunks.length,
       retrievedChunks: formattedChunks,
       constructedPrompt: fullPrompt,
     });
   } catch (error: any) {
-    console.error("Phase 6 RAG Generation Error:", error);
+    console.error("Phase 6 & 7 RAG Generation Error:", error);
     return NextResponse.json(
       {
         success: false,
@@ -84,5 +94,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
 
 

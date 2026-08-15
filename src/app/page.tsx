@@ -20,7 +20,7 @@ export default function Home() {
   const [selectedChunkId, setSelectedChunkId] = useState<string>("");
   const [selectedVectorId, setSelectedVectorId] = useState<string>("");
 
-  // Phase 5 & 6 RAG Query state
+  // Phase 5, 6 & 7 RAG Query state
   const [searchQuery, setSearchQuery] = useState<string>("What are the main paradigms of RAG?");
   const [loadingQuery, setLoadingQuery] = useState<boolean>(false);
   const [queryStatus, setQueryStatus] = useState<string>("");
@@ -30,6 +30,7 @@ export default function Home() {
   const [ragAnswer, setRagAnswer] = useState<string>("");
   const [constructedPrompt, setConstructedPrompt] = useState<string>("");
   const [showPrompt, setShowPrompt] = useState<boolean>(false);
+  const [sourcesList, setSourcesList] = useState<{ file: string; page: number }[] | null>(null);
 
   // Load existing data on mount
   useEffect(() => {
@@ -148,6 +149,7 @@ export default function Home() {
     setQueryStatus("Running RAG pipeline: Embedding query -> Vector search -> Gemma 3 4B generation...");
     setRagAnswer("");
     setConstructedPrompt("");
+    setSourcesList(null);
     try {
       const res = await fetch("/api/query", {
         method: "POST",
@@ -159,6 +161,7 @@ export default function Home() {
         setSearchResults(data.retrievedChunks);
         setRagAnswer(data.answer);
         setConstructedPrompt(data.constructedPrompt);
+        setSourcesList(data.sources || null);
         setQueryStatus(`Successfully generated answer using Gemma 3 4B! Searched ${data.totalVectorsSearched} vectors.`);
       } else {
         setQueryStatus(`RAG Error: ${data.error}`);
@@ -169,7 +172,6 @@ export default function Home() {
       setLoadingQuery(false);
     }
   };
-
 
   const currentSelectedChunk: TextChunk | undefined = chunkData?.chunks.find(
     (c) => c.id === selectedChunkId
@@ -182,12 +184,12 @@ export default function Home() {
   return (
     <div style={{ maxWidth: "1000px", margin: "0 auto", padding: "1rem" }}>
       <header style={{ marginBottom: "2rem" }}>
-        <span className="badge">Phase 1 to 5: RAG Pipeline & Similarity Search</span>
+        <span className="badge">Phase 1 to 7: Complete Grounded RAG Application</span>
         <h1 style={{ fontSize: "2.2rem", marginTop: "0.5rem" }}>
           Local PDF RAG Application
         </h1>
         <p style={{ color: "var(--text-muted)" }}>
-          Extract PDF text, split into overlapping chunks, embed with <code>nomic-embed-text</code>, and perform Cosine Similarity search over local JSON store.
+          Extract PDF text, split into overlapping chunks, embed with <code>nomic-embed-text</code>, search via Cosine Similarity, and generate grounded answers with <code>gemma3:4b</code> & page citations.
         </p>
       </header>
 
@@ -284,11 +286,11 @@ export default function Home() {
         )}
       </section>
 
-      {/* PHASE 5 & 6 SECTION: RAG RETRIEVAL & GEMMA GENERATION */}
+      {/* PHASE 5 & 6 & 7 SECTION: RAG RETRIEVAL, GEMMA GENERATION & SOURCE CITATIONS */}
       <section className="card" style={{ marginTop: "1.5rem", borderColor: "#238636" }}>
-        <h2>Phase 6: Full Grounded RAG Generation (Gemma 3 4B) ⭐</h2>
+        <h2>Phase 6 & 7: Grounded Answer Generation & Source Citations ⭐</h2>
         <p>
-          Converts question to vector using <code>nomic-embed-text</code>, retrieves Top 3 relevant chunks via Cosine Similarity, builds a grounded system prompt, and calls local <code>gemma3:4b</code> via Ollama.
+          Converts question to vector using <code>nomic-embed-text</code>, retrieves Top 3 relevant chunks via Cosine Similarity, builds a grounded system prompt, and calls local <code>gemma3:4b</code> via Ollama with explicit page citations.
         </p>
         <div style={{ display: "flex", gap: "0.8rem", marginTop: "1rem", flexWrap: "wrap" }}>
           <input
@@ -365,6 +367,28 @@ export default function Home() {
               {ragAnswer}
             </div>
 
+            {/* PHASE 7: EXPLICIT SOURCE CITATIONS BADGES */}
+            {sourcesList && sourcesList.length > 0 && (
+              <div style={{ marginTop: "1rem", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+                <strong style={{ color: "#a5d6ff", fontSize: "0.9rem" }}>📄 Source Citations (Phase 7):</strong>
+                {sourcesList.map((s, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      padding: "0.25rem 0.75rem",
+                      borderRadius: "12px",
+                      backgroundColor: "#1f6feb",
+                      color: "#ffffff",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {s.file} — Page {s.page}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* CONSTRUCTED PROMPT TOGGLE */}
             {constructedPrompt && (
               <div style={{ marginTop: "1rem" }}>
@@ -403,6 +427,7 @@ export default function Home() {
             )}
           </div>
         )}
+       )}
 
         {/* TOP 3 RETRIEVED CHUNKS DISPLAY */}
         {searchResults && (
