@@ -7,6 +7,8 @@
  * - gemma3:4b: Generates grounded LLM answers using retrieved text chunks as context.
  */
 
+import { ChatMessage } from "@/types";
+
 export const OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 export const EMBEDDING_MODEL = "nomic-embed-text";
 export const LLM_MODEL = "gemma3:4b";
@@ -32,12 +34,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Ollama API error (${response.status}): ${errorText}`);
+      throw new Error(`Ollama Embedding API error (${response.status}): ${errorText}`);
     }
 
     const data = await response.json();
     if (!data.embedding || !Array.isArray(data.embedding)) {
-      throw new Error("Invalid embedding response received from Ollama");
+      throw new Error("Invalid response structure from Ollama embedding API");
     }
 
     return data.embedding;
@@ -52,15 +54,18 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 /**
- * Constructs a grounded RAG prompt by formatting system instructions, retrieved context chunks, and user question.
+ * Constructs a grounded RAG prompt by formatting system instructions, retrieved context chunks,
+ * previous conversation history, and user question.
  * 
- * @param question - Original user question string
+ * @param question - Current user question string
  * @param chunks - Top-K retrieved chunks with page numbers and text content
+ * @param history - Previous turns in the conversation (user and assistant messages)
  * @returns Complete prompt string ready for LLM generation
  */
 export function buildRAGPrompt(
   question: string,
-  chunks: { chunkId: string; pageNumber: number; content: string; score: number }[]
+  chunks: { chunkId: string; pageNumber: number; content: string; score: number }[],
+  history: ChatMessage[] = []
 ): string {
   const contextText = chunks
     .map(
@@ -69,21 +74,27 @@ export function buildRAGPrompt(
     )
     .join("\n\n");
 
+  const historyText = history.length > 0
+    ? history
+        .map((msg) => `${msg.role === "user" ? "USER" : "ASSISTANT"}: ${msg.content}`)
+        .join("\n")
+    : "";
+
   return `You are a helpful and strict RAG AI Assistant.
 
 SYSTEM INSTRUCTIONS:
 1. Answer the USER QUESTION using ONLY the facts contained in the PROVIDED CONTEXT below.
-2. Do NOT use outside knowledge or assumptions not present in the CONTEXT.
-3. When calculating durations between month/year date ranges (e.g., Sept 2024 to Feb 2025), count the exact months step-by-step accurately (Sept, Oct, Nov, Dec, Jan, Feb = 6 months).
-4. If the answer cannot be found in the PROVIDED CONTEXT, strictly reply with: "The requested information was not found in the document."
-5. Include page number citations (e.g. [Page X]) in your answer whenever referencing facts from the context.
-
+2. Use the PREVIOUS CONVERSATION HISTORY to resolve pronouns (such as "it", "this", "that", "they", "he", "she").
+3. Do NOT use outside knowledge or assumptions not present in the CONTEXT.
+4. When calculating durations between month/year date ranges (e.g., Sept 2024 to Feb 2025), count the exact months step-by-step accurately (Sept, Oct, Nov, Dec, Jan, Feb = 6 months).
+5. If the answer cannot be found in the PROVIDED CONTEXT, strictly reply with: "The requested information was not found in the document."
+6. Include page number citations (e.g. [Page X]) in your answer whenever referencing facts from the context.
 
 === PROVIDED CONTEXT ===
 ${contextText}
 ========================
 
-USER QUESTION: ${question}
+${historyText ? `=== PREVIOUS CONVERSATION HISTORY ===\n${historyText}\n=====================================\n\n` : ""}USER QUESTION: ${question}
 
 ANSWER:`;
 }

@@ -51,17 +51,35 @@ export interface LocalVectorStore {
   vectors: VectorEmbedding[];
 }
 
+// Represents a single turn in a chat conversation
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  sources?: { file: string; page: number }[];
+}
+
 // API Request format for querying RAG
 export interface QueryRequest {
   question: string;
+  topK?: number;
+  chatHistory?: ChatMessage[];
 }
 
 // API Response format for RAG answer generation
 export interface QueryResponse {
+  success: boolean;
+  question: string;
+  modelUsed: string;
   answer: string;
+  sources?: { file: string; page: number }[];
   retrievedChunks: {
+    chunkId: string;
     content: string;
     pageNumber: number;
     score: number; // Cosine similarity score
   }[];
+  constructedPrompt?: string;
+  chatHistory?: ChatMessage[];
+  error?: string;
 }
+

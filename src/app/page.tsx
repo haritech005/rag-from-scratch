@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { ExtractedDocument, ChunkedDocument, TextChunk, LocalVectorStore } from "@/types";
+import { ExtractedDocument, ChunkedDocument, TextChunk, LocalVectorStore, ChatMessage } from "@/types";
 
 export default function Home() {
   // Application Data States
@@ -17,8 +17,9 @@ export default function Home() {
   const [isProcessingPipeline, setIsProcessingPipeline] = useState<boolean>(false);
   const [pipelineStep, setPipelineStep] = useState<string>("");
   
-  // Q&A Query States
-  const [question, setQuestion] = useState<string>("What are the main paradigms of RAG?");
+  // Q&A Query & Multi-Turn Chat States
+  const [question, setQuestion] = useState<string>("What is RAG?");
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isGeneratingAnswer, setIsGeneratingAnswer] = useState<boolean>(false);
   const [answer, setAnswer] = useState<string>("");
   const [sources, setSources] = useState<{ file: string; page: number }[] | null>(null);
@@ -132,11 +133,12 @@ export default function Home() {
 
   /**
    * Submits Question to RAG Query Pipeline:
-   * Embed Question -> Vector Search -> Prompt Construction -> Gemma 3 4B Answer
+   * Embed Question -> Vector Search -> Prompt Construction with Conversation History -> Gemma 3 4B Answer
    */
   const handleAskQuestion = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!question.trim()) return;
+    const currentQuestion = question.trim();
+    if (!currentQuestion) return;
 
     setIsGeneratingAnswer(true);
     setErrorMessage("");
@@ -149,7 +151,11 @@ export default function Home() {
       const res = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: question.trim(), topK: 3 }),
+        body: JSON.stringify({
+          question: currentQuestion,
+          topK: 3,
+          chatHistory,
+        }),
       });
 
       const data = await res.json();
@@ -161,12 +167,26 @@ export default function Home() {
       setSources(data.sources || null);
       setRetrievedChunks(data.retrievedChunks || null);
       setConstructedPrompt(data.constructedPrompt || "");
+      if (data.chatHistory) {
+        setChatHistory(data.chatHistory);
+      }
+      setQuestion(""); // Reset input field for next conversational turn
     } catch (err: any) {
       setErrorMessage(err.message || "Failed to retrieve answer from LLM");
     } finally {
       setIsGeneratingAnswer(false);
     }
   };
+
+  const handleClearHistory = () => {
+    setChatHistory([]);
+    setAnswer("");
+    setSources(null);
+    setRetrievedChunks(null);
+    setConstructedPrompt("");
+    setQuestion("What is RAG?");
+  };
+
 
   return (
     <div className="container">
@@ -288,12 +308,63 @@ export default function Home() {
           </div>
         )}
 
+        {/* MULTI-TURN CONVERSATION HISTORY SECTION (Phase 9) */}
+        {chatHistory.length > 0 && (
+          <div style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.8rem" }}>
+              <h3 style={{ fontSize: "1rem", color: "#475569" }}>
+                📜 Conversation History ({chatHistory.length} messages)
+              </h3>
+              <button
+                onClick={handleClearHistory}
+                className="btn-secondary"
+                style={{ fontSize: "0.8rem", padding: "0.3rem 0.8rem", color: "#dc2626", borderColor: "#fecaca" }}
+              >
+                Clear Conversation
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+              {chatHistory.map((msg, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: "0.9rem 1.1rem",
+                    borderRadius: "8px",
+                    backgroundColor: msg.role === "user" ? "#f1f5f9" : "#ffffff",
+                    border: msg.role === "user" ? "1px solid #cbd5e1" : "1px solid #a7f3d0",
+                    marginLeft: msg.role === "user" ? "1.5rem" : "0",
+                    marginRight: msg.role === "user" ? "0" : "1.5rem",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: "0.85rem", color: msg.role === "user" ? "#475569" : "#059669", marginBottom: "0.3rem" }}>
+                    {msg.role === "user" ? "👤 User" : "🤖 Gemma 3 4B"}
+                  </div>
+                  <div style={{ fontSize: "0.95rem", color: "#1e293b", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
+                    {msg.content}
+                  </div>
+                  {msg.sources && msg.sources.length > 0 && (
+                    <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>Sources:</span>
+                      {msg.sources.map((s, sIdx) => (
+                        <span key={sIdx} className="badge" style={{ fontSize: "0.75rem", padding: "0.15rem 0.5rem" }}>
+                          {s.file} — Page {s.page}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* GENERATED ANSWER & CITATIONS DISPLAY */}
         {answer && !isGeneratingAnswer && (
           <div style={{ marginTop: "1.5rem", padding: "1.5rem", backgroundColor: "#ffffff", border: "1px solid #a7f3d0", borderRadius: "10px", boxShadow: "0 4px 12px rgba(16, 185, 129, 0.08)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
               <h3 style={{ fontSize: "1.1rem", color: "#065f46", margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                🤖 Gemma 3 4B Answer
+                🤖 Gemma 3 4B Latest Answer
               </h3>
               <span className="badge badge-success">Strictly Grounded in PDF</span>
             </div>
@@ -322,7 +393,7 @@ export default function Home() {
                   onClick={() => setShowPrompt(!showPrompt)}
                   style={{ background: "none", border: "none", color: "#4f46e5", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, padding: 0, textDecoration: "underline" }}
                 >
-                  {showPrompt ? "▲ Hide Constructed LLM Prompt" : "▼ Show Constructed LLM Prompt (Where Chunks Are Inserted)"}
+                  {showPrompt ? "▲ Hide Constructed LLM Prompt" : "▼ Show Constructed LLM Prompt (Where Chunks & History Are Inserted)"}
                 </button>
 
                 {showPrompt && (
@@ -335,6 +406,7 @@ export default function Home() {
           </div>
         )}
       </section>
+
 
       {/* RETRIEVED CONTEXT CHUNKS DISPLAY */}
       {retrievedChunks && retrievedChunks.length > 0 && (
