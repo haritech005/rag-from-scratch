@@ -30,8 +30,34 @@ export default function Home() {
   const [showPrompt, setShowPrompt] = useState<boolean>(false);
   const [showDebugInspector, setShowDebugInspector] = useState<boolean>(false);
 
+  // Phase 10 Evaluation States
+  const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
+  const [evalReport, setEvalReport] = useState<any | null>(null);
+  const [evalStatus, setEvalStatus] = useState<string>("");
+
   // Error States
   const [errorMessage, setErrorMessage] = useState<string>("");
+
+  const handleRunEvaluation = async () => {
+    setIsEvaluating(true);
+    setEvalStatus("Executing 10 evaluation test questions through RAG pipeline...");
+    setEvalReport(null);
+    try {
+      const res = await fetch("/api/eval", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setEvalReport(data.report);
+        setEvalStatus(`✓ Evaluation Complete! Evaluated ${data.report.totalQuestions} questions. Saved to ${data.savedTo}`);
+      } else {
+        setEvalStatus(`Evaluation Error: ${data.error}`);
+      }
+    } catch (err: any) {
+      setEvalStatus(`Error: ${err.message}`);
+    } finally {
+      setIsEvaluating(false);
+    }
+  };
+
 
   // Load existing RAG state on mount
   useEffect(() => {
@@ -431,6 +457,78 @@ export default function Home() {
         </section>
       )}
 
+      {/* PHASE 10: RAG EVALUATION SUITE SECTION */}
+      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#8957e5" }}>
+        <h2>Phase 10: RAG Evaluation Suite 📊</h2>
+        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
+          Executes a curated 10-question test set across 5 categories (Direct Factual, Semantic Retrieval, Paraphrased, Out of Scope, and Distractor). Measures vector retrieval quality, LLM accuracy, and fallback handling.
+        </p>
+
+        <button
+          onClick={handleRunEvaluation}
+          disabled={isEvaluating}
+          className="btn-primary"
+          style={{ backgroundColor: "#8957e5", marginTop: "0.5rem" }}
+        >
+          {isEvaluating ? "Evaluating 10 Test Questions..." : "Run Phase 10 RAG Evaluation Suite"}
+        </button>
+
+        {evalStatus && (
+          <p style={{ marginTop: "1rem", color: "#8957e5", fontWeight: 600, fontSize: "0.9rem" }}>
+            {evalStatus}
+          </p>
+        )}
+
+        {/* EVALUATION RESULTS DISPLAY */}
+        {evalReport && (
+          <div style={{ marginTop: "1.5rem", overflowX: "auto" }}>
+            <h3 style={{ fontSize: "1rem", color: "#334155", marginBottom: "0.8rem" }}>
+              Evaluation Report (Saved to <code>data/eval_results.json</code>)
+            </h3>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
+              <thead>
+                <tr style={{ backgroundColor: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
+                  <th style={{ padding: "0.6rem" }}>#</th>
+                  <th style={{ padding: "0.6rem" }}>Category</th>
+                  <th style={{ padding: "0.6rem" }}>Question</th>
+                  <th style={{ padding: "0.6rem" }}>Retrieved Chunks</th>
+                  <th style={{ padding: "0.6rem" }}>Generated Answer / Fallback</th>
+                </tr>
+              </thead>
+              <tbody>
+                {evalReport.results.map((item: any) => (
+                  <tr key={item.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td style={{ padding: "0.6rem", fontWeight: 700 }}>Q{item.id}</td>
+                    <td style={{ padding: "0.6rem" }}>
+                      <span className="badge" style={{ fontSize: "0.75rem", padding: "0.15rem 0.5rem" }}>
+                        {item.category}
+                      </span>
+                    </td>
+                    <td style={{ padding: "0.6rem", maxWidth: "200px" }}>{item.question}</td>
+                    <td style={{ padding: "0.6rem" }}>
+                      {item.retrievedChunks.map((c: any, cIdx: number) => (
+                        <div key={cIdx} style={{ fontSize: "0.75rem", color: "#475569" }}>
+                          <code>{c.chunkId}</code> (P{c.pageNumber}, {c.score})
+                        </div>
+                      ))}
+                    </td>
+                    <td style={{ padding: "0.6rem", maxWidth: "280px" }}>
+                      {item.isFallbackTriggered ? (
+                        <span className="badge badge-warning">Fallback Triggered</span>
+                      ) : (
+                        <div style={{ fontSize: "0.8rem", color: "#1e293b", maxHeight: "80px", overflowY: "auto" }}>
+                          {item.generatedAnswer}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {/* DEBUG & DATA INSPECTOR TOGGLE */}
       <section style={{ marginTop: "2rem", textAlign: "center" }}>
         <button
@@ -489,3 +587,4 @@ export default function Home() {
     </div>
   );
 }
+
