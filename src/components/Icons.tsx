@@ -1,13 +1,13 @@
 import React from "react";
 
-export function FilePdfIcon({ className = "w-6 h-6" }: { className?: string }) {
+export function FilePdfIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={className}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      style={{ minWidth: "1.25rem", minHeight: "1.25rem" }}
+      style={{ width: "1.5rem", height: "1.5rem", maxWidth: "100%", maxHeight: "100%", flexShrink: 0, ...style }}
     >
       <path
         strokeLinecap="round"
@@ -23,13 +23,13 @@ export function UserAvatarIcon({ className = "w-8 h-8", style }: { className?: s
   return (
     <div
       className={`flex items-center justify-center bg-red-400 text-slate-900 rounded-md font-bold shadow-md flex-shrink-0 ${className}`}
-      style={style}
+      style={{ width: "2rem", height: "2rem", maxWidth: "2rem", maxHeight: "2rem", flexShrink: 0, ...style }}
     >
       <svg
-        className="w-1/2 h-1/2"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
+        style={{ width: "60%", height: "60%", maxWidth: "100%", maxHeight: "100%" }}
       >
         <path
           strokeLinecap="round"
@@ -46,12 +46,12 @@ export function BotAvatarIcon({ className = "w-8 h-8", style }: { className?: st
   return (
     <div
       className={`flex items-center justify-center bg-amber-400 text-slate-950 rounded-md font-bold shadow-md flex-shrink-0 ${className}`}
-      style={style}
+      style={{ width: "2rem", height: "2rem", maxWidth: "2rem", maxHeight: "2rem", flexShrink: 0, ...style }}
     >
       <svg
-        className="w-1/2 h-1/2"
         viewBox="0 0 24 24"
         fill="currentColor"
+        style={{ width: "60%", height: "60%", maxWidth: "100%", maxHeight: "100%" }}
       >
         <path d="M12 2a1 1 0 011 1v1a7 7 0 017 7v7a3 3 0 01-3 3H7a3 3 0 01-3-3v-7a7 7 0 017-7V3a1 1 0 011-1zm0 4a5 5 0 00-5 5v7a1 1 0 001 1h12a1 1 0 001-1v-7a5 5 0 00-5-5zm-3 5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3z" />
       </svg>
@@ -59,13 +59,14 @@ export function BotAvatarIcon({ className = "w-8 h-8", style }: { className?: st
   );
 }
 
-export function UploadCloudIcon({ className = "w-8 h-8" }: { className?: string }) {
+export function UploadCloudIcon({ className = "w-8 h-8", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={className}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
+      style={{ width: "2rem", height: "2rem", maxWidth: "100%", maxHeight: "100%", flexShrink: 0, ...style }}
     >
       <path
         strokeLinecap="round"
@@ -77,63 +78,68 @@ export function UploadCloudIcon({ className = "w-8 h-8" }: { className?: string 
   );
 }
 
-export function CheckIcon({ className = "w-4 h-4" }: { className?: string }) {
+export function CheckIcon({ className = "w-4 h-4", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={className}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
+      style={{ width: "1rem", height: "1rem", maxWidth: "100%", maxHeight: "100%", flexShrink: 0, ...style }}
     >
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
     </svg>
   );
 }
 
-export function ChevronDownIcon({ className = "w-4 h-4" }: { className?: string }) {
+export function ChevronDownIcon({ className = "w-4 h-4", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={className}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
+      style={{ width: "1rem", height: "1rem", maxWidth: "100%", maxHeight: "100%", flexShrink: 0, ...style }}
     >
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
     </svg>
   );
 }
 
-export function TrashXIcon({ className = "w-4 h-4" }: { className?: string }) {
+export function TrashXIcon({ className = "w-4 h-4", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={className}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
+      style={{ width: "1rem", height: "1rem", maxWidth: "100%", maxHeight: "100%", flexShrink: 0, ...style }}
     >
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }
 
-export function SendArrowIcon({ className = "w-5 h-5" }: { className?: string }) {
+export function SendArrowIcon({ className = "w-5 h-5", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={className}
       viewBox="0 0 24 24"
       fill="currentColor"
+      style={{ width: "1.25rem", height: "1.25rem", maxWidth: "100%", maxHeight: "100%", flexShrink: 0, ...style }}
     >
       <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
     </svg>
   );
 }
 
-export function SpinnerIcon({ className = "w-5 h-5" }: { className?: string }) {
+export function SpinnerIcon({ className = "w-5 h-5", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={`animate-spin ${className}`}
       fill="none"
       viewBox="0 0 24 24"
+      style={{ width: "1.25rem", height: "1.25rem", maxWidth: "100%", maxHeight: "100%", flexShrink: 0, ...style }}
     >
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path
