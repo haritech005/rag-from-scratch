@@ -1,811 +1,155 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { ExtractedDocument, ChunkedDocument, TextChunk, LocalVectorStore, ChatMessage } from "@/types";
+import React, { useState, useEffect } from "react";
+import Sidebar from "@/components/Sidebar";
+import ChatArea from "@/components/ChatArea";
+import { DocumentMeta } from "@/lib/storage";
+import { ChatMessage } from "@/types";
 
 export default function Home() {
-  // Application Data States
-  const [extractedData, setExtractedData] = useState<ExtractedDocument | null>(null);
-  const [chunkData, setChunkData] = useState<ChunkedDocument | null>(null);
-  const [embedData, setEmbedData] = useState<LocalVectorStore | null>(null);
-
-  // File Upload State
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Pipeline Loading States
-  const [isProcessingPipeline, setIsProcessingPipeline] = useState<boolean>(false);
-  const [pipelineStep, setPipelineStep] = useState<string>("");
-  
-  // Q&A Query & Multi-Turn Chat States
-  const [question, setQuestion] = useState<string>("What is RAG?");
+  const [documentMeta, setDocumentMeta] = useState<DocumentMeta | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStep, setUploadStep] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [isGeneratingAnswer, setIsGeneratingAnswer] = useState<boolean>(false);
-  const [answer, setAnswer] = useState<string>("");
-  const [sources, setSources] = useState<{ file: string; page: number }[] | null>(null);
-  const [retrievedChunks, setRetrievedChunks] = useState<
-    { chunkId: string; pageNumber: number; score: number; content: string }[] | null
-  >(null);
-  const [constructedPrompt, setConstructedPrompt] = useState<string>("");
-  const [showPrompt, setShowPrompt] = useState<boolean>(false);
-  const [showDebugInspector, setShowDebugInspector] = useState<boolean>(false);
+  const [isQuerying, setIsQuerying] = useState(false);
 
-  // Phase 10 Evaluation States
-  const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
-  const [evalReport, setEvalReport] = useState<any | null>(null);
-  const [evalStatus, setEvalStatus] = useState<string>("");
-
-  // Phase 11 Experimentation States
-  const [expChunkSize, setExpChunkSize] = useState<number>(600);
-  const [expChunkOverlap, setExpChunkOverlap] = useState<number>(100);
-  const [expTopK, setExpTopK] = useState<number>(3);
-  const [expMinScore, setExpMinScore] = useState<number>(0.0);
-  const [expCustomPrompt, setExpCustomPrompt] = useState<string>("");
-  const [isRunningExp, setIsRunningExp] = useState<boolean>(false);
-  const [expStatus, setExpStatus] = useState<string>("");
-  const [pastExperiments, setPastExperiments] = useState<any[]>([]);
-
-  // Error States
-  const [errorMessage, setErrorMessage] = useState<string>("");
-
-  const loadPastExperiments = async () => {
-    try {
-      const res = await fetch("/api/experiment");
-      const data = await res.json();
-      if (data.success && data.experiments) {
-        setPastExperiments(data.experiments);
-      }
-    } catch {}
-  };
-
-  const handleRunEvaluation = async () => {
-    setIsEvaluating(true);
-    setEvalStatus("Executing 10 evaluation test questions through RAG pipeline...");
-    setEvalReport(null);
-    try {
-      const res = await fetch("/api/eval", { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        setEvalReport(data.report);
-        setEvalStatus(`✓ Evaluation Complete! Evaluated ${data.report.totalQuestions} questions. Saved to ${data.savedTo}`);
-      } else {
-        setEvalStatus(`Evaluation Error: ${data.error}`);
-      }
-    } catch (err: any) {
-      setEvalStatus(`Error: ${err.message}`);
-    } finally {
-      setIsEvaluating(false);
-    }
-  };
-
-  const handleRunPresetExperiment = async (name: string, chunkSize: number, overlap: number, topK: number, minScore: number) => {
-    setIsRunningExp(true);
-    setExpStatus(`Running ${name}...`);
-    try {
-      const res = await fetch("/api/experiment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, chunkSize, chunkOverlap: overlap, topK, minScore, customPrompt: expCustomPrompt }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setExpStatus(`✓ Completed '${name}'! Total Chunks: ${data.experiment.totalChunksInStore}, Fallbacks: ${data.experiment.fallbackCount}/10`);
-        loadPastExperiments();
-      } else {
-        setExpStatus(`Experiment Error: ${data.error}`);
-      }
-    } catch (err: any) {
-      setExpStatus(`Error: ${err.message}`);
-    } finally {
-      setIsRunningExp(false);
-    }
-  };
-
-
-
-  // Load existing RAG state on mount
+  // Fetch active document status on mount
   useEffect(() => {
-    loadAppState();
-    loadPastExperiments();
+    fetchDocumentStatus();
   }, []);
 
-  const loadAppState = async () => {
+  const fetchDocumentStatus = async () => {
     try {
-      // 1. Check extracted PDF pages
-      const resIngest = await fetch("/api/ingest");
-      const dataIngest = await resIngest.json();
-      if (dataIngest.success && dataIngest.document) {
-        setExtractedData(dataIngest.document);
-      }
-
-      // 2. Check text chunks
-      const resChunk = await fetch("/api/chunk");
-      const dataChunk = await resChunk.json();
-      if (dataChunk.success && dataChunk.data) {
-        setChunkData(dataChunk.data);
-      }
-
-      // 3. Check vector embeddings
-      const resEmbed = await fetch("/api/embed");
-      const dataEmbed = await resEmbed.json();
-      if (dataEmbed.success && dataEmbed.data) {
-        setEmbedData(dataEmbed.data);
-      }
-    } catch (err: any) {
-      console.error("Error loading app state:", err);
-    }
-  };
-
-  /**
-   * Runs complete PDF Processing Pipeline:
-   * Upload PDF -> Parse Pages (Phase 1) -> Chunk Text (Phase 2) -> Generate Embeddings (Phase 3)
-   */
-  const handleProcessPdfPipeline = async (fileToUpload?: File | null) => {
-    setIsProcessingPipeline(true);
-    setErrorMessage("");
-    try {
-      // Step 1: PDF Extraction (Phase 1)
-      setPipelineStep("Step 1/3: Extracting PDF pages...");
-      let ingestRes;
-      if (fileToUpload) {
-        const formData = new FormData();
-        formData.append("file", fileToUpload);
-        ingestRes = await fetch("/api/ingest", {
-          method: "POST",
-          body: formData,
-        });
+      const res = await fetch("/api/document/status");
+      const data = await res.json();
+      if (data.success && data.hasDocument) {
+        setDocumentMeta(data.document);
       } else {
-        ingestRes = await fetch("/api/ingest", { method: "POST" });
+        setDocumentMeta(null);
       }
-
-      const dataIngest = await ingestRes.json();
-      if (!dataIngest.success) {
-        throw new Error(dataIngest.error || "Failed to extract text from PDF");
-      }
-      setExtractedData(dataIngest.document);
-
-      // Step 2: Text Chunking (Phase 2)
-      setPipelineStep("Step 2/3: Chunking document text...");
-      const chunkRes = await fetch("/api/chunk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chunkSize: expChunkSize, overlap: expChunkOverlap }),
-      });
-      const dataChunk = await chunkRes.json();
-      if (!dataChunk.success) {
-        throw new Error(dataChunk.error || "Failed to generate text chunks");
-      }
-      setChunkData(dataChunk.data);
-
-      // Step 3: Embeddings Generation (Phase 3)
-      setPipelineStep("Step 3/3: Generating 768-dim embeddings with Ollama (nomic-embed-text)...");
-      const embedRes = await fetch("/api/embed", { method: "POST" });
-      const dataEmbed = await embedRes.json();
-      if (!dataEmbed.success) {
-        throw new Error(dataEmbed.error || "Failed to generate vector embeddings");
-      }
-
-      // Reload updated embeddings
-      const getEmbed = await fetch("/api/embed");
-      const dataGetEmbed = await getEmbed.json();
-      if (dataGetEmbed.success) {
-        setEmbedData(dataGetEmbed.data);
-      }
-
-      setPipelineStep("✓ PDF Processed & Indexed Successfully!");
-      setSelectedFile(null);
-    } catch (err: any) {
-      setErrorMessage(err.message || "An unexpected error occurred during PDF processing");
-      setPipelineStep("");
-    } finally {
-      setIsProcessingPipeline(false);
+    } catch (error) {
+      console.error("Error fetching document status:", error);
     }
   };
 
-  /**
-   * Submits Question to RAG Query Pipeline:
-   * Embed Question -> Vector Search -> Prompt Construction with Conversation History -> Gemma 3 4B Answer
-   */
-  const handleAskQuestion = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const currentQuestion = question.trim();
-    if (!currentQuestion) return;
-
-    setIsGeneratingAnswer(true);
-    setErrorMessage("");
-    setAnswer("");
-    setSources(null);
-    setRetrievedChunks(null);
-    setConstructedPrompt("");
+  // Automated PDF Upload & RAG Indexing Handler
+  const handleFileUpload = async (file: File) => {
+    setIsUploading(true);
+    setUploadStep("1. Parsing text pages...");
 
     try {
-      const res = await fetch("/api/query", {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      setUploadStep("2. Chunking & Generating 768-dim embeddings...");
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        alert(`Upload Failed: ${data.error || "Failed to process PDF file."}`);
+        setIsUploading(false);
+        return;
+      }
+
+      setDocumentMeta(data.document);
+      setChatHistory([]); // Reset chat history for new document
+      alert(`Success! "${file.name}" has been indexed and is ready for chat.`);
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      alert(`Upload Error: ${error.message || "Failed to upload file"}`);
+    } finally {
+      setIsUploading(false);
+      setUploadStep("");
+    }
+  };
+
+  // Clear / Reset Document Handler
+  const handleClearDocument = async () => {
+    if (!confirm("Are you sure you want to remove the current document?")) return;
+    try {
+      await fetch("/api/document", { method: "DELETE" });
+      setDocumentMeta(null);
+      setChatHistory([]);
+    } catch (error) {
+      console.error("Error clearing document:", error);
+    }
+  };
+
+  // Conversational Query Handler
+  const handleSendMessage = async (question: string) => {
+    if (!question.trim() || isQuerying || !documentMeta) return;
+
+    const userMessage: ChatMessage = { role: "user", content: question };
+    const updatedHistory = [...chatHistory, userMessage];
+    setChatHistory(updatedHistory);
+    setIsQuerying(true);
+
+    try {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question: currentQuestion,
-          topK: expTopK,
-          minScore: expMinScore,
-          customPrompt: expCustomPrompt,
-          chatHistory,
+          question,
+          chatHistory: updatedHistory,
         }),
       });
 
-
       const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || "Failed to generate response from RAG system");
+
+      if (!res.ok || !data.success) {
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `⚠️ Error: ${data.error || "Failed to get an answer from Ollama."}`,
+          },
+        ]);
+        return;
       }
 
-      setAnswer(data.answer);
-      setSources(data.sources || null);
-      setRetrievedChunks(data.retrievedChunks || null);
-      setConstructedPrompt(data.constructedPrompt || "");
-      if (data.chatHistory) {
-        setChatHistory(data.chatHistory);
-      }
-      setQuestion(""); // Reset input field for next conversational turn
-    } catch (err: any) {
-      setErrorMessage(err.message || "Failed to retrieve answer from LLM");
+      const botMessage: ChatMessage = {
+        role: "assistant",
+        content: data.answer,
+        sources: data.sources,
+      };
+
+      setChatHistory((prev) => [...prev, botMessage]);
+    } catch (error: any) {
+      console.error("Chat error:", error);
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `⚠️ Network Error: ${error.message || "Could not reach server."}`,
+        },
+      ]);
     } finally {
-      setIsGeneratingAnswer(false);
+      setIsQuerying(false);
     }
   };
 
-  const handleClearHistory = () => {
-    setChatHistory([]);
-    setAnswer("");
-    setSources(null);
-    setRetrievedChunks(null);
-    setConstructedPrompt("");
-    setQuestion("What is RAG?");
-  };
-
-
   return (
-    <div className="container">
-      {/* HEADER SECTION */}
-      <header style={{ marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
-        <div>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
-            <span className="badge">Phase 8 Frontend UI</span>
-            <span className="badge badge-success">Local Ollama Active</span>
-          </div>
-          <h1 style={{ fontSize: "2rem", color: "#0f172a" }}>Local PDF RAG Assistant</h1>
-          <p style={{ color: "#64748b", margin: 0 }}>
-            Grounded Q&A powered by <code>nomic-embed-text</code> & <code>gemma3:4b</code> without external vector databases.
-          </p>
-        </div>
+    <div className="flex h-screen w-screen bg-[#0f1015] font-sans overflow-hidden antialiased">
+      {/* Left Sidebar Panel */}
+      <Sidebar
+        documentMeta={documentMeta}
+        isUploading={isUploading}
+        uploadStep={uploadStep}
+        onFileUpload={handleFileUpload}
+        onClearDocument={handleClearDocument}
+      />
 
-        {/* DOCUMENT METRICS CARD */}
-        <div style={{ background: "#ffffff", padding: "0.8rem 1.2rem", borderRadius: "10px", border: "1px solid #e2e8f0", boxShadow: "var(--shadow-sm)", fontSize: "0.85rem" }}>
-          <div style={{ color: "#64748b" }}>Active Document: <strong style={{ color: "#0f172a" }}>{extractedData?.filename || "RAG.pdf"}</strong></div>
-          <div style={{ display: "flex", gap: "1rem", marginTop: "0.3rem" }}>
-            <span>📄 Pages: <strong>{extractedData?.totalPages || 0}</strong></span>
-            <span>🧩 Chunks: <strong>{chunkData?.totalChunks || 0}</strong></span>
-            <span>⚡ Vectors: <strong>{embedData?.totalChunks || 0}</strong></span>
-          </div>
-        </div>
-      </header>
-
-      {/* ERROR ALERT BANNER */}
-      {errorMessage && (
-        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "1rem 1.25rem", borderRadius: "10px", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <strong>Error:</strong> {errorMessage}
-          </div>
-          <button onClick={() => setErrorMessage("")} style={{ background: "none", border: "none", color: "#991b1b", cursor: "pointer", fontWeight: 700 }}>✕</button>
-        </div>
-      )}
-
-      {/* PDF UPLOAD & PROCESS CARD */}
-      <section className="card">
-        <h2 style={{ fontSize: "1.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          📁 1. Upload & Index PDF Document
-        </h2>
-        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
-          Upload a custom PDF or process the bundled <code>RAG.pdf</code> paper. The system extracts text page-by-page, chunks it into ~600 token blocks, and generates 768-dim embeddings.
-        </p>
-
-        <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap", marginTop: "1rem" }}>
-          <input
-            type="file"
-            accept=".pdf"
-            ref={fileInputRef}
-            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-            style={{ display: "none" }}
-          />
-          
-          <button
-            className="btn-secondary"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessingPipeline}
-          >
-            {selectedFile ? `Selected: ${selectedFile.name}` : "Choose Custom PDF File..."}
-          </button>
-
-          <button
-            className="btn-primary"
-            onClick={() => handleProcessPdfPipeline(selectedFile)}
-            disabled={isProcessingPipeline}
-          >
-            {isProcessingPipeline ? "Processing PDF..." : selectedFile ? "Upload & Process Custom PDF" : "Index RAG.pdf Document"}
-          </button>
-        </div>
-
-        {/* PIPELINE PROGRESS BAR */}
-        {pipelineStep && (
-          <div style={{ marginTop: "1.25rem", padding: "0.8rem 1rem", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", color: "#166534", fontSize: "0.9rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {isProcessingPipeline && (
-              <span style={{ display: "inline-block", width: "14px", height: "14px", border: "2px solid #166534", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }}></span>
-            )}
-            {pipelineStep}
-          </div>
-        )}
-      </section>
-
-      {/* QUESTION INPUT & GROUNDED ANSWER CARD */}
-      <section className="card" style={{ borderColor: "#c7d2fe" }}>
-        <h2 style={{ fontSize: "1.25rem", color: "#4f46e5", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          💬 2. Ask Questions (Grounded Q&A)
-        </h2>
-        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
-          Ask any question about the PDF. The system computes Cosine Similarity against all chunk vectors, retrieves the Top 3 context chunks, and prompts Gemma 3 4B to answer using strictly provided facts.
-        </p>
-
-        <form onSubmit={handleAskQuestion} style={{ marginTop: "1rem" }}>
-          <div style={{ display: "flex", gap: "0.8rem", flexWrap: "wrap" }}>
-            <input
-              type="text"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Ask a question about the document..."
-              disabled={isGeneratingAnswer}
-              style={{ flex: 1, minWidth: "280px" }}
-            />
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={isGeneratingAnswer || !question.trim()}
-              style={{ padding: "0.75rem 1.75rem" }}
-            >
-              {isGeneratingAnswer ? "Thinking..." : "Ask Gemma 3 4B"}
-            </button>
-          </div>
-        </form>
-
-        {/* LOADING INDICATOR */}
-        {isGeneratingAnswer && (
-          <div style={{ marginTop: "1.5rem", padding: "1.25rem", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", textAlign: "center", color: "#64748b" }}>
-            <div style={{ display: "inline-block", width: "24px", height: "24px", border: "3px solid #4f46e5", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "0.5rem" }}></div>
-            <div>Embedding question $\rightarrow$ Searching 768-dim vectors $\rightarrow$ Generating answer with Gemma 3 4B...</div>
-          </div>
-        )}
-
-        {/* MULTI-TURN CONVERSATION HISTORY SECTION (Phase 9) */}
-        {chatHistory.length > 0 && (
-          <div style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.8rem" }}>
-              <h3 style={{ fontSize: "1rem", color: "#475569" }}>
-                📜 Conversation History ({chatHistory.length} messages)
-              </h3>
-              <button
-                onClick={handleClearHistory}
-                className="btn-secondary"
-                style={{ fontSize: "0.8rem", padding: "0.3rem 0.8rem", color: "#dc2626", borderColor: "#fecaca" }}
-              >
-                Clear Conversation
-              </button>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-              {chatHistory.map((msg, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    padding: "0.9rem 1.1rem",
-                    borderRadius: "8px",
-                    backgroundColor: msg.role === "user" ? "#f1f5f9" : "#ffffff",
-                    border: msg.role === "user" ? "1px solid #cbd5e1" : "1px solid #a7f3d0",
-                    marginLeft: msg.role === "user" ? "1.5rem" : "0",
-                    marginRight: msg.role === "user" ? "0" : "1.5rem",
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: "0.85rem", color: msg.role === "user" ? "#475569" : "#059669", marginBottom: "0.3rem" }}>
-                    {msg.role === "user" ? "👤 User" : "🤖 Gemma 3 4B"}
-                  </div>
-                  <div style={{ fontSize: "0.95rem", color: "#1e293b", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
-                    {msg.content}
-                  </div>
-                  {msg.sources && msg.sources.length > 0 && (
-                    <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>Sources:</span>
-                      {msg.sources.map((s, sIdx) => (
-                        <span key={sIdx} className="badge" style={{ fontSize: "0.75rem", padding: "0.15rem 0.5rem" }}>
-                          {s.file} — Page {s.page}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* GENERATED ANSWER & CITATIONS DISPLAY */}
-        {answer && !isGeneratingAnswer && (
-          <div style={{ marginTop: "1.5rem", padding: "1.5rem", backgroundColor: "#ffffff", border: "1px solid #a7f3d0", borderRadius: "10px", boxShadow: "0 4px 12px rgba(16, 185, 129, 0.08)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
-              <h3 style={{ fontSize: "1.1rem", color: "#065f46", margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                🤖 Gemma 3 4B Latest Answer
-              </h3>
-              <span className="badge badge-success">Strictly Grounded in PDF</span>
-            </div>
-
-            {/* Answer Content */}
-            <div style={{ fontSize: "1rem", lineHeight: "1.7", color: "#1e293b", backgroundColor: "#f8fafc", padding: "1.2rem", borderRadius: "8px", border: "1px solid #e2e8f0", whiteSpace: "pre-wrap" }}>
-              {answer}
-            </div>
-
-            {/* SOURCE CITATIONS (Phase 7 Requirement) */}
-            {sources && sources.length > 0 && (
-              <div style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-                <strong style={{ fontSize: "0.9rem", color: "#334155" }}>📄 Source Citations:</strong>
-                {sources.map((src, idx) => (
-                  <span key={idx} className="badge" style={{ backgroundColor: "#e0e7ff", color: "#4338ca", border: "1px solid #c7d2fe", fontSize: "0.85rem" }}>
-                    {src.file} — Page {src.page}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* EXPANDABLE CONSTRUCTED PROMPT VIEWER */}
-            {constructedPrompt && (
-              <div style={{ marginTop: "1rem" }}>
-                <button
-                  onClick={() => setShowPrompt(!showPrompt)}
-                  style={{ background: "none", border: "none", color: "#4f46e5", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, padding: 0, textDecoration: "underline" }}
-                >
-                  {showPrompt ? "▲ Hide Constructed LLM Prompt" : "▼ Show Constructed LLM Prompt (Where Chunks & History Are Inserted)"}
-                </button>
-
-                {showPrompt && (
-                  <pre style={{ marginTop: "0.75rem", fontSize: "0.8rem", color: "#334155", backgroundColor: "#f1f5f9", borderColor: "#cbd5e1" }}>
-                    {constructedPrompt}
-                  </pre>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-
-      {/* RETRIEVED CONTEXT CHUNKS DISPLAY */}
-      {retrievedChunks && retrievedChunks.length > 0 && (
-        <section className="card">
-          <h2 style={{ fontSize: "1.1rem", color: "#334155" }}>
-            🔍 Top 3 Retrieved Context Chunks (Cosine Similarity)
-          </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
-            {retrievedChunks.map((chunk, idx) => (
-              <div key={chunk.chunkId + idx} style={{ backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.85rem", flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 600, color: "#4f46e5" }}>Rank #{idx + 1} — ID: {chunk.chunkId}</span>
-                  <span style={{ color: "#059669", fontWeight: 600 }}>Similarity: {chunk.score}</span>
-                  <span style={{ color: "#64748b" }}>Page {chunk.pageNumber}</span>
-                </div>
-                <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: "1.5" }}>
-                  {chunk.content}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* PHASE 10: RAG EVALUATION SUITE SECTION */}
-      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#8957e5" }}>
-        <h2>Phase 10: RAG Evaluation Suite 📊</h2>
-        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
-          Executes a curated 10-question test set across 5 categories (Direct Factual, Semantic Retrieval, Paraphrased, Out of Scope, and Distractor). Measures vector retrieval quality, LLM accuracy, and fallback handling.
-        </p>
-
-        <button
-          onClick={handleRunEvaluation}
-          disabled={isEvaluating}
-          className="btn-primary"
-          style={{ backgroundColor: "#8957e5", marginTop: "0.5rem" }}
-        >
-          {isEvaluating ? "Evaluating 10 Test Questions..." : "Run Phase 10 RAG Evaluation Suite"}
-        </button>
-
-        {evalStatus && (
-          <p style={{ marginTop: "1rem", color: "#8957e5", fontWeight: 600, fontSize: "0.9rem" }}>
-            {evalStatus}
-          </p>
-        )}
-
-        {/* EVALUATION RESULTS DISPLAY */}
-        {evalReport && (
-          <div style={{ marginTop: "1.5rem", overflowX: "auto" }}>
-            <h3 style={{ fontSize: "1rem", color: "#334155", marginBottom: "0.8rem" }}>
-              Evaluation Report (Saved to <code>data/eval_results.json</code>)
-            </h3>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
-              <thead>
-                <tr style={{ backgroundColor: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
-                  <th style={{ padding: "0.6rem" }}>#</th>
-                  <th style={{ padding: "0.6rem" }}>Category</th>
-                  <th style={{ padding: "0.6rem" }}>Question</th>
-                  <th style={{ padding: "0.6rem" }}>Retrieved Chunks</th>
-                  <th style={{ padding: "0.6rem" }}>Generated Answer / Fallback</th>
-                </tr>
-              </thead>
-              <tbody>
-                {evalReport.results.map((item: any) => (
-                  <tr key={item.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                    <td style={{ padding: "0.6rem", fontWeight: 700 }}>Q{item.id}</td>
-                    <td style={{ padding: "0.6rem" }}>
-                      <span className="badge" style={{ fontSize: "0.75rem", padding: "0.15rem 0.5rem" }}>
-                        {item.category}
-                      </span>
-                    </td>
-                    <td style={{ padding: "0.6rem", maxWidth: "200px" }}>{item.question}</td>
-                    <td style={{ padding: "0.6rem" }}>
-                      {item.retrievedChunks.map((c: any, cIdx: number) => (
-                        <div key={cIdx} style={{ fontSize: "0.75rem", color: "#475569" }}>
-                          <code>{c.chunkId}</code> (P{c.pageNumber}, {c.score})
-                        </div>
-                      ))}
-                    </td>
-                    <td style={{ padding: "0.6rem", maxWidth: "280px" }}>
-                      {item.isFallbackTriggered ? (
-                        <span className="badge badge-warning">Fallback Triggered</span>
-                      ) : (
-                        <div style={{ fontSize: "0.8rem", color: "#1e293b", maxHeight: "80px", overflowY: "auto" }}>
-                          {item.generatedAnswer}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* PHASE 11: RAG QUALITY EXPERIMENTATION PANEL */}
-      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#2563eb" }}>
-        <h2 style={{ fontSize: "1.25rem", color: "#2563eb", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          🧪 Phase 11: RAG Quality Experimentation Panel
-        </h2>
-        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
-          Experiment with Chunk Size, Overlap, Top-K, Similarity Threshold, and System Prompts. Run 1-click comparison experiments A, B, and C.
-        </p>
-
-        {/* 1-CLICK PRESET EXPERIMENT BUTTONS */}
-        <div style={{ marginTop: "1rem", display: "flex", gap: "0.8rem", flexWrap: "wrap" }}>
-          <button
-            className="btn-secondary"
-            onClick={() => handleRunPresetExperiment("Experiment A (Baseline)", 500, 100, 3, 0.0)}
-            disabled={isRunningExp}
-            style={{ backgroundColor: "#eff6ff", borderColor: "#bfdbfe", color: "#1d4ed8" }}
-          >
-            🧪 Run Exp A (Size 500, K=3)
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={() => handleRunPresetExperiment("Experiment B (High Recall)", 800, 150, 5, 0.0)}
-            disabled={isRunningExp}
-            style={{ backgroundColor: "#f0fdf4", borderColor: "#bbf7d0", color: "#15803d" }}
-          >
-            🧪 Run Exp B (Size 800, K=5)
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={() => handleRunPresetExperiment("Experiment C (High Precision Threshold)", 600, 100, 5, 0.65)}
-            disabled={isRunningExp}
-            style={{ backgroundColor: "#faf5ff", borderColor: "#e9d5ff", color: "#7e22ce" }}
-          >
-            🧪 Run Exp C (Score Threshold 0.65)
-          </button>
-        </div>
-
-        {expStatus && (
-          <p style={{ marginTop: "1rem", color: "#2563eb", fontWeight: 600, fontSize: "0.9rem" }}>
-            {expStatus}
-          </p>
-        )}
-
-        {/* INTERACTIVE HYPERPARAMETER SETTINGS CONTROLS */}
-        <div style={{ marginTop: "1.25rem", padding: "1.2rem", backgroundColor: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-          <h3 style={{ fontSize: "1rem", color: "#334155", marginBottom: "1rem" }}>
-            ⚙️ Live Query Hyperparameters (Active for Q&A above)
-          </h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
-            <div>
-              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
-                📏 Chunk Size: <strong>{expChunkSize} tokens</strong>
-              </label>
-              <input
-                type="number"
-                value={expChunkSize}
-                onChange={(e) => setExpChunkSize(Number(e.target.value))}
-                min={200}
-                max={1200}
-                step={50}
-                style={{ padding: "0.5rem" }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
-                🔁 Chunk Overlap: <strong>{expChunkOverlap} tokens</strong>
-              </label>
-              <input
-                type="number"
-                value={expChunkOverlap}
-                onChange={(e) => setExpChunkOverlap(Number(e.target.value))}
-                min={0}
-                max={300}
-                step={25}
-                style={{ padding: "0.5rem" }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
-                🔢 Top-K Chunks: <strong>{expTopK}</strong>
-              </label>
-              <input
-                type="number"
-                value={expTopK}
-                onChange={(e) => setExpTopK(Number(e.target.value))}
-                min={1}
-                max={10}
-                style={{ padding: "0.5rem" }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
-                🎯 Similarity Threshold (minScore): <strong>{expMinScore}</strong>
-              </label>
-              <input
-                type="number"
-                value={expMinScore}
-                onChange={(e) => setExpMinScore(Number(e.target.value))}
-                min={0.0}
-                max={0.9}
-                step={0.05}
-                style={{ padding: "0.5rem" }}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
-              ✍️ Custom System Prompt (Optional):
-            </label>
-            <textarea
-              value={expCustomPrompt}
-              onChange={(e) => setExpCustomPrompt(e.target.value)}
-              placeholder="Leave empty for default system instructions, or enter custom instructions..."
-              rows={3}
-              style={{
-                width: "100%",
-                padding: "0.75rem",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontSize: "0.85rem",
-                fontFamily: "inherit",
-              }}
-            />
-          </div>
-        </div>
-
-        {/* EXPERIMENT COMPARISON TABLE */}
-        {pastExperiments && pastExperiments.length > 0 && (
-          <div style={{ marginTop: "1.5rem", overflowX: "auto" }}>
-            <h3 style={{ fontSize: "1rem", color: "#334155", marginBottom: "0.8rem" }}>
-              Saved Experiment Comparison (data/experiments.json)
-            </h3>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
-              <thead>
-                <tr style={{ backgroundColor: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
-                  <th style={{ padding: "0.6rem" }}>Experiment</th>
-                  <th style={{ padding: "0.6rem" }}>Chunk Size</th>
-                  <th style={{ padding: "0.6rem" }}>Overlap</th>
-                  <th style={{ padding: "0.6rem" }}>Top-K</th>
-                  <th style={{ padding: "0.6rem" }}>Min Score</th>
-                  <th style={{ padding: "0.6rem" }}>Total Chunks</th>
-                  <th style={{ padding: "0.6rem" }}>Avg Score</th>
-                  <th style={{ padding: "0.6rem" }}>Fallbacks</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pastExperiments.map((exp: any, idx: number) => (
-                  <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                    <td style={{ padding: "0.6rem", fontWeight: 700, color: "#1d4ed8" }}>{exp.experimentName}</td>
-                    <td style={{ padding: "0.6rem" }}>{exp.config.chunkSize}</td>
-                    <td style={{ padding: "0.6rem" }}>{exp.config.chunkOverlap}</td>
-                    <td style={{ padding: "0.6rem" }}>{exp.config.topK}</td>
-                    <td style={{ padding: "0.6rem" }}>{exp.config.minScore}</td>
-                    <td style={{ padding: "0.6rem" }}>{exp.totalChunksInStore}</td>
-                    <td style={{ padding: "0.6rem", fontWeight: 600, color: "#059669" }}>{exp.avgSimilarityScore}</td>
-                    <td style={{ padding: "0.6rem" }}>
-                      <span className="badge" style={{ fontSize: "0.75rem" }}>
-                        {exp.fallbackCount}/10 Fallbacks
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-
-      {/* DEBUG & DATA INSPECTOR TOGGLE */}
-      <section style={{ marginTop: "2rem", textAlign: "center" }}>
-        <button
-          className="btn-secondary"
-          onClick={() => setShowDebugInspector(!showDebugInspector)}
-          style={{ fontSize: "0.85rem" }}
-        >
-          {showDebugInspector ? "▲ Hide Raw Data Inspector" : "▼ Inspect Raw Data (Extracted Pages, Chunks & Vectors)"}
-        </button>
-
-        {showDebugInspector && (
-          <div style={{ marginTop: "1.5rem", textAlign: "left" }} className="card">
-            <h3>Raw Data Inspection</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1rem", fontSize: "0.9rem" }}>
-              <div>
-                <strong>Extracted Pages JSON:</strong>
-                <pre style={{ maxHeight: "200px" }}>
-                  {JSON.stringify(extractedData?.pages.slice(0, 2), null, 2)}
-                </pre>
-              </div>
-              <div>
-                <strong>Text Chunks JSON:</strong>
-                <pre style={{ maxHeight: "200px" }}>
-                  {JSON.stringify(chunkData?.chunks.slice(0, 2), null, 2)}
-                </pre>
-              </div>
-              <div>
-                <strong>Vectors JSON Sample:</strong>
-                <pre style={{ maxHeight: "200px" }}>
-                  {JSON.stringify(
-                    embedData?.vectors[0]
-                      ? {
-                          id: embedData.vectors[0].id,
-                          page: embedData.vectors[0].pageNumber,
-                          dimensions: embedData.vectors[0].embedding.length,
-                          sampleVector: embedData.vectors[0].embedding.slice(0, 5),
-                        }
-                      : null,
-                    null,
-                    2
-                  )}
-                </pre>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* CSS ANIMATION FOR SPINNER */}
-      <style jsx global>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
+      {/* Right Chat Area Panel */}
+      <ChatArea
+        documentMeta={documentMeta}
+        chatHistory={chatHistory}
+        isQuerying={isQuerying}
+        onSendMessage={handleSendMessage}
+      />
     </div>
   );
 }
-
