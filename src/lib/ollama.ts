@@ -85,8 +85,8 @@ export function buildRAGPrompt(
   const systemInstructions = customPrompt && customPrompt.trim()
     ? customPrompt.trim()
     : `SYSTEM INSTRUCTIONS:
-1. Answer the USER QUESTION using ONLY the facts contained in the PROVIDED CONTEXT below.
-2. Use the PREVIOUS CONVERSATION HISTORY to resolve pronouns (such as "it", "this", "that", "they", "he", "she").
+1. Answer the USER QUESTION directly, explicitly, and completely using ONLY the facts contained in the PROVIDED CONTEXT below. Always include exact dates, years, numbers, names, and details requested by the user.
+2. Use the PREVIOUS CONVERSATION HISTORY to resolve pronouns (such as "it", "this", "that", "they", "he", "she") and follow-up context. Do NOT repeat previous assistant answers verbatim if the user requests more specific details (e.g. years, dates, scores).
 3. Do NOT use outside knowledge or assumptions not present in the CONTEXT.
 4. When calculating durations between month/year date ranges (e.g., Sept 2024 to Feb 2025), count the exact months step-by-step accurately (Sept, Oct, Nov, Dec, Jan, Feb = 6 months).
 5. If the answer cannot be found in the PROVIDED CONTEXT, strictly reply with: "The requested information was not found in the document."

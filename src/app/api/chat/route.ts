@@ -44,14 +44,18 @@ export async function POST(request: NextRequest) {
 
     const filename = docMeta?.filename || vectorStore.sourceFilename || "Uploaded_Document.pdf";
 
-    // Step 2: Enrich vector query with previous user question if pronoun used
+    // Step 2: Filter prior history to exclude the current question
+    const priorHistory = chatHistory.filter(
+      (m, idx) => !(idx === chatHistory.length - 1 && m.role === "user" && m.content === question)
+    );
+
     let vectorSearchText = question;
-    const previousUserMsgs = chatHistory.filter((m) => m.role === "user");
+    const previousUserMsgs = priorHistory.filter((m) => m.role === "user");
     if (previousUserMsgs.length > 0) {
       const lastUserMsg = previousUserMsgs[previousUserMsgs.length - 1].content;
       if (
-        question.length < 25 ||
-        /\b(it|this|that|they|these|those|he|she)\b/i.test(question)
+        question.length < 35 ||
+        /\b(it|this|that|they|these|those|he|she|year|date|when|where|what)\b/i.test(question)
       ) {
         vectorSearchText = `${lastUserMsg} ${question}`;
       }
@@ -74,8 +78,8 @@ export async function POST(request: NextRequest) {
       content: item.content,
     }));
 
-    // Step 5: Build grounded RAG prompt inserting retrieved context & history
-    const fullPrompt = buildRAGPrompt(question, formattedChunks, chatHistory);
+    // Step 5: Build grounded RAG prompt inserting retrieved context & prior history
+    const fullPrompt = buildRAGPrompt(question, formattedChunks, priorHistory);
 
     // Step 6: Generate response with local Ollama gemma3:4b
     const rawAnswer = await generateLLMResponse(fullPrompt);
