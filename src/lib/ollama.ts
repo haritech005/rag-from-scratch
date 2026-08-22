@@ -60,12 +60,14 @@ export async function generateEmbedding(text: string): Promise<number[]> {
  * @param question - Current user question string
  * @param chunks - Top-K retrieved chunks with page numbers and text content
  * @param history - Previous turns in the conversation (user and assistant messages)
+ * @param customPrompt - Optional custom system prompt template string for experimentation
  * @returns Complete prompt string ready for LLM generation
  */
 export function buildRAGPrompt(
   question: string,
   chunks: { chunkId: string; pageNumber: number; content: string; score: number }[],
-  history: ChatMessage[] = []
+  history: ChatMessage[] = [],
+  customPrompt?: string
 ): string {
   const contextText = chunks
     .map(
@@ -80,24 +82,29 @@ export function buildRAGPrompt(
         .join("\n")
     : "";
 
-  return `You are a helpful and strict RAG AI Assistant.
-
-SYSTEM INSTRUCTIONS:
+  const systemInstructions = customPrompt && customPrompt.trim()
+    ? customPrompt.trim()
+    : `SYSTEM INSTRUCTIONS:
 1. Answer the USER QUESTION using ONLY the facts contained in the PROVIDED CONTEXT below.
 2. Use the PREVIOUS CONVERSATION HISTORY to resolve pronouns (such as "it", "this", "that", "they", "he", "she").
 3. Do NOT use outside knowledge or assumptions not present in the CONTEXT.
 4. When calculating durations between month/year date ranges (e.g., Sept 2024 to Feb 2025), count the exact months step-by-step accurately (Sept, Oct, Nov, Dec, Jan, Feb = 6 months).
 5. If the answer cannot be found in the PROVIDED CONTEXT, strictly reply with: "The requested information was not found in the document."
-6. Include page number citations (e.g. [Page X]) in your answer whenever referencing facts from the context.
+6. Include page number citations (e.g. [Page X]) in your answer whenever referencing facts from the context.`;
+
+  return `You are a helpful and strict RAG AI Assistant.
+
+${systemInstructions}
 
 === PROVIDED CONTEXT ===
-${contextText}
+${contextText || "(No context chunks matched the similarity threshold criteria)"}
 ========================
 
 ${historyText ? `=== PREVIOUS CONVERSATION HISTORY ===\n${historyText}\n=====================================\n\n` : ""}USER QUESTION: ${question}
 
 ANSWER:`;
 }
+
 
 /**
  * Sends a constructed prompt to local Ollama gemma3:4b model to generate a text answer.

@@ -69,17 +69,19 @@ dotProduct
 }
 
 /**
- * Ranks all stored vectors against a query vector and returns Top-K highest scoring chunks.
+ * Ranks all stored vectors against a query vector and returns Top-K highest scoring chunks above minScore threshold.
  * 
  * @param queryVector - Vector embedding of the user's question (768 numbers)
  * @param storedVectors - Array of stored chunk vectors from data/vectors.json
  * @param topK - Number of top chunks to return (default: 3)
+ * @param minScore - Minimum similarity threshold score (0.0 to 1.0) to include a chunk (default: 0.0)
  * @returns Array of SearchResult sorted in descending order of similarity score
  */
 export function searchTopK(
   queryVector: number[],
   storedVectors: VectorEmbedding[],
-  topK: number = 3
+  topK: number = 3,
+  minScore: number = 0.0
 ): SearchResult[] {
   const results: SearchResult[] = storedVectors.map((item) => {
     const score = cosineSimilarity(queryVector, item.embedding);
@@ -91,10 +93,11 @@ export function searchTopK(
     };
   });
 
-  // Sort by score in descending order (highest score first)
-  results.sort((a, b) => b.score - a.score);
-
-  // Return top K results
-  return results.slice(0, topK);
+  // Filter by minScore threshold, then sort by score descending
+  return results
+    .filter((item) => item.score >= minScore)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
 }
+
 

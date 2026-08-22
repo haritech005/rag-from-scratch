@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "eval": "npx tsx scripts/evaluateRAG.ts"
+    "eval": "npx tsx scripts/evaluateRAG.ts",
+    "experiment": "npx tsx scripts/runExperiments.ts"
   },
   "dependencies": {
     "next": "15.1.7",

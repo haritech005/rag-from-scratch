@@ -35,8 +35,28 @@ export default function Home() {
   const [evalReport, setEvalReport] = useState<any | null>(null);
   const [evalStatus, setEvalStatus] = useState<string>("");
 
+  // Phase 11 Experimentation States
+  const [expChunkSize, setExpChunkSize] = useState<number>(600);
+  const [expChunkOverlap, setExpChunkOverlap] = useState<number>(100);
+  const [expTopK, setExpTopK] = useState<number>(3);
+  const [expMinScore, setExpMinScore] = useState<number>(0.0);
+  const [expCustomPrompt, setExpCustomPrompt] = useState<string>("");
+  const [isRunningExp, setIsRunningExp] = useState<boolean>(false);
+  const [expStatus, setExpStatus] = useState<string>("");
+  const [pastExperiments, setPastExperiments] = useState<any[]>([]);
+
   // Error States
   const [errorMessage, setErrorMessage] = useState<string>("");
+
+  const loadPastExperiments = async () => {
+    try {
+      const res = await fetch("/api/experiment");
+      const data = await res.json();
+      if (data.success && data.experiments) {
+        setPastExperiments(data.experiments);
+      }
+    } catch {}
+  };
 
   const handleRunEvaluation = async () => {
     setIsEvaluating(true);
@@ -58,10 +78,35 @@ export default function Home() {
     }
   };
 
+  const handleRunPresetExperiment = async (name: string, chunkSize: number, overlap: number, topK: number, minScore: number) => {
+    setIsRunningExp(true);
+    setExpStatus(`Running ${name}...`);
+    try {
+      const res = await fetch("/api/experiment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, chunkSize, chunkOverlap: overlap, topK, minScore, customPrompt: expCustomPrompt }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setExpStatus(`✓ Completed '${name}'! Total Chunks: ${data.experiment.totalChunksInStore}, Fallbacks: ${data.experiment.fallbackCount}/10`);
+        loadPastExperiments();
+      } else {
+        setExpStatus(`Experiment Error: ${data.error}`);
+      }
+    } catch (err: any) {
+      setExpStatus(`Error: ${err.message}`);
+    } finally {
+      setIsRunningExp(false);
+    }
+  };
+
+
 
   // Load existing RAG state on mount
   useEffect(() => {
     loadAppState();
+    loadPastExperiments();
   }, []);
 
   const loadAppState = async () => {
@@ -120,11 +165,11 @@ export default function Home() {
       setExtractedData(dataIngest.document);
 
       // Step 2: Text Chunking (Phase 2)
-      setPipelineStep("Step 2/3: Chunking document text (~600 tokens)...");
+      setPipelineStep("Step 2/3: Chunking document text...");
       const chunkRes = await fetch("/api/chunk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chunkSize: 600, overlap: 100 }),
+        body: JSON.stringify({ chunkSize: expChunkSize, overlap: expChunkOverlap }),
       });
       const dataChunk = await chunkRes.json();
       if (!dataChunk.success) {
@@ -179,10 +224,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: currentQuestion,
-          topK: 3,
+          topK: expTopK,
+          minScore: expMinScore,
+          customPrompt: expCustomPrompt,
           chatHistory,
         }),
       });
+
 
       const data = await res.json();
       if (!data.success) {
@@ -528,6 +576,179 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {/* PHASE 11: RAG QUALITY EXPERIMENTATION PANEL */}
+      <section className="card" style={{ marginTop: "1.5rem", borderColor: "#2563eb" }}>
+        <h2 style={{ fontSize: "1.25rem", color: "#2563eb", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          🧪 Phase 11: RAG Quality Experimentation Panel
+        </h2>
+        <p style={{ fontSize: "0.9rem", color: "#64748b" }}>
+          Experiment with Chunk Size, Overlap, Top-K, Similarity Threshold, and System Prompts. Run 1-click comparison experiments A, B, and C.
+        </p>
+
+        {/* 1-CLICK PRESET EXPERIMENT BUTTONS */}
+        <div style={{ marginTop: "1rem", display: "flex", gap: "0.8rem", flexWrap: "wrap" }}>
+          <button
+            className="btn-secondary"
+            onClick={() => handleRunPresetExperiment("Experiment A (Baseline)", 500, 100, 3, 0.0)}
+            disabled={isRunningExp}
+            style={{ backgroundColor: "#eff6ff", borderColor: "#bfdbfe", color: "#1d4ed8" }}
+          >
+            🧪 Run Exp A (Size 500, K=3)
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => handleRunPresetExperiment("Experiment B (High Recall)", 800, 150, 5, 0.0)}
+            disabled={isRunningExp}
+            style={{ backgroundColor: "#f0fdf4", borderColor: "#bbf7d0", color: "#15803d" }}
+          >
+            🧪 Run Exp B (Size 800, K=5)
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => handleRunPresetExperiment("Experiment C (High Precision Threshold)", 600, 100, 5, 0.65)}
+            disabled={isRunningExp}
+            style={{ backgroundColor: "#faf5ff", borderColor: "#e9d5ff", color: "#7e22ce" }}
+          >
+            🧪 Run Exp C (Score Threshold 0.65)
+          </button>
+        </div>
+
+        {expStatus && (
+          <p style={{ marginTop: "1rem", color: "#2563eb", fontWeight: 600, fontSize: "0.9rem" }}>
+            {expStatus}
+          </p>
+        )}
+
+        {/* INTERACTIVE HYPERPARAMETER SETTINGS CONTROLS */}
+        <div style={{ marginTop: "1.25rem", padding: "1.2rem", backgroundColor: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ fontSize: "1rem", color: "#334155", marginBottom: "1rem" }}>
+            ⚙️ Live Query Hyperparameters (Active for Q&A above)
+          </h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
+                📏 Chunk Size: <strong>{expChunkSize} tokens</strong>
+              </label>
+              <input
+                type="number"
+                value={expChunkSize}
+                onChange={(e) => setExpChunkSize(Number(e.target.value))}
+                min={200}
+                max={1200}
+                step={50}
+                style={{ padding: "0.5rem" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
+                🔁 Chunk Overlap: <strong>{expChunkOverlap} tokens</strong>
+              </label>
+              <input
+                type="number"
+                value={expChunkOverlap}
+                onChange={(e) => setExpChunkOverlap(Number(e.target.value))}
+                min={0}
+                max={300}
+                step={25}
+                style={{ padding: "0.5rem" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
+                🔢 Top-K Chunks: <strong>{expTopK}</strong>
+              </label>
+              <input
+                type="number"
+                value={expTopK}
+                onChange={(e) => setExpTopK(Number(e.target.value))}
+                min={1}
+                max={10}
+                style={{ padding: "0.5rem" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
+                🎯 Similarity Threshold (minScore): <strong>{expMinScore}</strong>
+              </label>
+              <input
+                type="number"
+                value={expMinScore}
+                onChange={(e) => setExpMinScore(Number(e.target.value))}
+                min={0.0}
+                max={0.9}
+                step={0.05}
+                style={{ padding: "0.5rem" }}
+              />
+            </div>
+          </div>
+
+          <div style={{ marginTop: "1rem" }}>
+            <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.3rem" }}>
+              ✍️ Custom System Prompt (Optional):
+            </label>
+            <textarea
+              value={expCustomPrompt}
+              onChange={(e) => setExpCustomPrompt(e.target.value)}
+              placeholder="Leave empty for default system instructions, or enter custom instructions..."
+              rows={3}
+              style={{
+                width: "100%",
+                padding: "0.75rem",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontSize: "0.85rem",
+                fontFamily: "inherit",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* EXPERIMENT COMPARISON TABLE */}
+        {pastExperiments && pastExperiments.length > 0 && (
+          <div style={{ marginTop: "1.5rem", overflowX: "auto" }}>
+            <h3 style={{ fontSize: "1rem", color: "#334155", marginBottom: "0.8rem" }}>
+              Saved Experiment Comparison (data/experiments.json)
+            </h3>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
+              <thead>
+                <tr style={{ backgroundColor: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
+                  <th style={{ padding: "0.6rem" }}>Experiment</th>
+                  <th style={{ padding: "0.6rem" }}>Chunk Size</th>
+                  <th style={{ padding: "0.6rem" }}>Overlap</th>
+                  <th style={{ padding: "0.6rem" }}>Top-K</th>
+                  <th style={{ padding: "0.6rem" }}>Min Score</th>
+                  <th style={{ padding: "0.6rem" }}>Total Chunks</th>
+                  <th style={{ padding: "0.6rem" }}>Avg Score</th>
+                  <th style={{ padding: "0.6rem" }}>Fallbacks</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pastExperiments.map((exp: any, idx: number) => (
+                  <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td style={{ padding: "0.6rem", fontWeight: 700, color: "#1d4ed8" }}>{exp.experimentName}</td>
+                    <td style={{ padding: "0.6rem" }}>{exp.config.chunkSize}</td>
+                    <td style={{ padding: "0.6rem" }}>{exp.config.chunkOverlap}</td>
+                    <td style={{ padding: "0.6rem" }}>{exp.config.topK}</td>
+                    <td style={{ padding: "0.6rem" }}>{exp.config.minScore}</td>
+                    <td style={{ padding: "0.6rem" }}>{exp.totalChunksInStore}</td>
+                    <td style={{ padding: "0.6rem", fontWeight: 600, color: "#059669" }}>{exp.avgSimilarityScore}</td>
+                    <td style={{ padding: "0.6rem" }}>
+                      <span className="badge" style={{ fontSize: "0.75rem" }}>
+                        {exp.fallbackCount}/10 Fallbacks
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
 
       {/* DEBUG & DATA INSPECTOR TOGGLE */}
       <section style={{ marginTop: "2rem", textAlign: "center" }}>

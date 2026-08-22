@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const question = body.question?.trim();
     const topK = typeof body.topK === "number" ? body.topK : 3;
+    const minScore = typeof body.minScore === "number" ? body.minScore : 0.0;
+    const customPrompt = typeof body.customPrompt === "string" ? body.customPrompt : undefined;
     const chatHistory: ChatMessage[] = Array.isArray(body.chatHistory) ? body.chatHistory : [];
 
     if (!question) {
@@ -57,11 +59,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`Phase 9: Embedding search text for vector retrieval: "${vectorSearchText}"`);
+    console.log(`Phase 9 & 11: Embedding search text for vector retrieval: "${vectorSearchText}"`);
     const queryVector = await generateEmbedding(vectorSearchText);
 
-    // Step 3: Compute Cosine Similarity against all stored chunks and rank Top-K
-    const topChunks = searchTopK(queryVector, vectorStore.vectors, topK);
+    // Step 3: Compute Cosine Similarity against all stored chunks and rank Top-K above minScore threshold
+    const topChunks = searchTopK(queryVector, vectorStore.vectors, topK, minScore);
 
     const formattedChunks = topChunks.map((item) => ({
       chunkId: item.chunkId,
@@ -70,8 +72,9 @@ export async function POST(request: NextRequest) {
       content: item.content,
     }));
 
-    // Step 4: Build grounded prompt inserting retrieved chunks, history, and instructions
-    const fullPrompt = buildRAGPrompt(question, formattedChunks, chatHistory);
+    // Step 4: Build grounded prompt inserting retrieved chunks, history, customPrompt and instructions
+    const fullPrompt = buildRAGPrompt(question, formattedChunks, chatHistory, customPrompt);
+
 
     console.log("\n=== Phase 9 Constructed Prompt ===");
     console.log(fullPrompt);
