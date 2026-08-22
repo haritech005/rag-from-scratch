@@ -81,3 +81,49 @@ export async function loadEmbeddings(): Promise<LocalVectorStore | null> {
   }
 }
 
+const DOC_META_FILE = path.join(DATA_DIR, "document_meta.json");
+
+export interface DocumentMeta {
+  filename: string;
+  fileSize: string;
+  totalPages: number;
+  totalChunks: number;
+  totalVectors: number;
+  status: "ready" | "processing" | "none";
+  uploadedAt: string;
+}
+
+/**
+ * Saves document metadata into data/document_meta.json
+ */
+export async function saveDocumentMeta(meta: DocumentMeta): Promise<string> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(DOC_META_FILE, JSON.stringify(meta, null, 2), "utf-8");
+  return DOC_META_FILE;
+}
+
+/**
+ * Loads document metadata from data/document_meta.json
+ */
+export async function loadDocumentMeta(): Promise<DocumentMeta | null> {
+  try {
+    const fileData = await fs.readFile(DOC_META_FILE, "utf-8");
+    return JSON.parse(fileData) as DocumentMeta;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Resets/clears active document storage files.
+ */
+export async function resetActiveDocument(): Promise<void> {
+  const filesToDelete = [DOC_META_FILE, EXTRACTED_PAGES_FILE, CHUNKS_FILE, VECTORS_FILE];
+  for (const file of filesToDelete) {
+    try {
+      await fs.unlink(file);
+    } catch {}
+  }
+}
+
+

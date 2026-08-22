@@ -46,8 +46,13 @@ export interface VectorEmbedding {
 
 // Data payload structure stored in data/store.json or data/vectors.json
 export interface LocalVectorStore {
-  updatedAt: string;
-  totalChunks: number;
+  filename?: string;
+  sourceFilename?: string;
+  embeddingModel?: string;
+  dimensions?: number;
+  updatedAt?: string;
+  totalChunks?: number;
+  totalVectors?: number;
   vectors: VectorEmbedding[];
 }
 
