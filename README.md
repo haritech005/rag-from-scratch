@@ -115,10 +115,5 @@ Navigate to `http://localhost:3000` in your browser.
 └── package.json
 ```
 
-## Features<img width="1917" height="1133" alt="Screenshot 2026-08-24 192428" src="https://github.com/user-attachments/assets/4f44995b-edb9-4f5b-acfe-2ba30077c58e" />
+<img width="1901" height="975" alt="Screenshot 2026-08-24 221254" src="https://github.com/user-attachments/assets/b1ed8284-c83b-4274-8346-7421fee63aa1" />
 
----
-
-## License
-
-MIT
