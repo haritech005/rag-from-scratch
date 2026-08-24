@@ -5,11 +5,7 @@ A lightweight, privacy-first Retrieval-Augmented Generation (RAG) web applicatio
 This application enables users to upload PDF documents and ask questions grounded strictly in the document context. It handles PDF parsing, fixed-window text chunking, dense vector embeddings, vector similarity search, conversational history resolution, and answer generation with exact page-level citations.
 
 ---
-
-## Features<img width="1917" height="1133" alt="Screenshot 2026-08-24 192428" src="https://github.com/user-attachments/assets/4f44995b-edb9-4f5b-acfe-2ba30077c58e" />
-
-
-
+## Features
 
 - **Automated PDF Indexing**: Upload any text-based PDF to automatically parse pages, chunk text, and generate vector embeddings.
 - **Local & Private Execution**: Powered entirely by local models via Ollama (`nomic-embed-text` for vector embeddings and `gemma3:4b` for LLM inference). No external API keys or cloud dependencies.
@@ -118,6 +114,8 @@ Navigate to `http://localhost:3000` in your browser.
 │   └── types/            # TypeScript type definitions
 └── package.json
 ```
+
+## Features<img width="1917" height="1133" alt="Screenshot 2026-08-24 192428" src="https://github.com/user-attachments/assets/4f44995b-edb9-4f5b-acfe-2ba30077c58e" />
 
 ---
 
