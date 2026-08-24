@@ -6,7 +6,10 @@ This application enables users to upload PDF documents and ask questions grounde
 
 ---
 
-## Features
+## Features<img width="1917" height="1133" alt="Screenshot 2026-08-24 192428" src="https://github.com/user-attachments/assets/4f44995b-edb9-4f5b-acfe-2ba30077c58e" />
+
+
+
 
 - **Automated PDF Indexing**: Upload any text-based PDF to automatically parse pages, chunk text, and generate vector embeddings.
 - **Local & Private Execution**: Powered entirely by local models via Ollama (`nomic-embed-text` for vector embeddings and `gemma3:4b` for LLM inference). No external API keys or cloud dependencies.
